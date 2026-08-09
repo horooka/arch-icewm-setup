@@ -1,0 +1,1635 @@
+gtkmm3 configurator skeleton
+TAGS: gtkmm3, configurator, program
+VARS: Gtk::Window; app_window, PlainText; app_id
+<TEMPLATE_BODY>
+#include <gdkmm.h>
+#include <gtkmm.h>
+
+class $app_window : public Gtk::Window {
+    public:
+        $app_window(const Glib::RefPtr<Gio::Application> &app_ref) 
+        : app_(app_ref) {
+            menuitem_save_label.set_text("Сохранить");
+            menuitem_exit_label.set_text("Выход");
+            menuitem_delete_label.set_text("Удалить");
+            menuitem_help_label.set_text("Помощь");
+
+            setup_ui();
+            setup_gresources();
+            setup_menubuttons();
+            setup_top_bar();
+            setup_signals();
+
+            show_all_children();
+            setup_data();
+        }
+
+    protected:
+        void button_save_enable() {
+            button_save_icon.set(pixbuf_save_enabled);
+            menuitem_save_icon.set(pixbuf_save_enabled);
+            button_save.set_sensitive(true);
+            menuitem_save.set_sensitive(true);
+            unsaved_ = true;
+        }
+
+        void button_save_disable() {
+            button_save_icon.set(pixbuf_save_disabled);
+            menuitem_save_icon.set(pixbuf_save_disabled);
+            button_save.set_sensitive(false);
+            menuitem_save.set_sensitive(false);
+            unsaved_ = false;
+        }
+
+        bool on_exit_clicked() {
+            if (unsaved_) {
+                Gtk::MessageDialog dialog("Сохранить изменения?", false,
+                                          Gtk::MESSAGE_QUESTION,
+                                          Gtk::BUTTONS_NONE);
+                dialog.add_button("_Да", Gtk::RESPONSE_YES);
+                dialog.add_button("_Нет", Gtk::RESPONSE_NO);
+                dialog.add_button("_Отмена", Gtk::RESPONSE_CANCEL);
+
+                int res = dialog.run();
+                if (res == Gtk::RESPONSE_NO)
+                    return false;
+                if (res == Gtk::RESPONSE_YES) {
+                    on_save_clicked();
+                    if (unsaved_)
+                        return true;
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        void on_save_clicked() {
+            std::string errors;
+            if (errors.empty()) {
+                button_save_disable();
+            } else {
+                Gtk::MessageDialog dialog("Не удалось сохранить файл базы "
+                                          "данных пользователей\n\n" +
+                                              errors,
+                                          false, Gtk::MESSAGE_ERROR);
+                dialog.run();
+            }
+            button_save_disable();
+        }
+
+        void show_copyable_mess(Gtk::MessageType type, const Glib::ustring &text) {
+            Gtk::MessageDialog dlg(*this, text, false, type, Gtk::BUTTONS_OK, true);
+            Gtk::Box *area = dlg.get_message_area();
+            if (!area)
+                return;
+            const auto children = area->get_children();
+            std::vector<Gtk::Widget *> pending(children.begin(), children.end());
+            while (!pending.empty()) {
+                Gtk::Widget *w = pending.back();
+                pending.pop_back();
+                if (auto *label = dynamic_cast<Gtk::Label *>(w)) {
+                    label->set_selectable(true);
+                    label->set_can_focus(true);
+                    continue;
+                }
+                if (auto *box = dynamic_cast<Gtk::Box *>(w)) {
+                    const auto children = box->get_children();
+                    pending.insert(pending.end(), children.begin(), children.end());
+                }
+            }
+            Gtk::Button *copy_btn = Gtk::manage(new Gtk::Button());
+            copy_btn->set_relief(Gtk::RELIEF_NONE);
+            copy_btn->set_focus_on_click(false);
+            copy_btn->set_tooltip_text("Скопировать текст в буфер");
+            auto *img = Gtk::manage(new Gtk::Image());
+            img->set_from_icon_name("edit-copy", Gtk::ICON_SIZE_BUTTON);
+            copy_btn->add(*img);
+            auto *corner_box =
+                Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
+            corner_box->set_halign(Gtk::ALIGN_CENTER);
+            corner_box->pack_end(*copy_btn, false, false, 0);
+            copy_btn->signal_clicked().connect([text]() {
+                if (const Glib::RefPtr<Gtk::Clipboard> cb =
+                        Gtk::Clipboard::get(GDK_SELECTION_CLIPBOARD))
+                    cb->set_text(text);
+            });
+            area->pack_start(*corner_box, false, false, 0);
+            area->reorder_child(*corner_box, 0);
+            area->show_all();
+            dlg.run();
+        }
+
+    private:
+        void set_margin(Gtk::Widget &widget, int margin_horizontal,
+                        int margin_vertical) {
+            widget.set_margin_top(margin_vertical);
+            widget.set_margin_left(margin_horizontal);
+            widget.set_margin_right(margin_horizontal);
+            widget.set_margin_bottom(margin_vertical);
+        };
+
+        // Check pixbufs loading to make do without validity checks in the future
+        void setup_gresources() {
+            try {
+                pixbuf_save_enabled = Gdk::Pixbuf::create_from_resource(
+                    "/org/icons/save-enabled.png");
+                pixbuf_save_disabled = Gdk::Pixbuf::create_from_resource(
+                    "/org/icons/save-disabled.png");
+                pixbuf_delete =
+                    Gdk::Pixbuf::create_from_resource("/org/icons/delete.png");
+                pixbuf_help = Gdk::Pixbuf::create_from_resource(
+                    "/org/icons/question-mark.png");
+            } catch (const Glib::Error &ex) {
+                show_copyable_mess(Gtk::MESSAGE_ERROR, Glib::ustring("Не удалось загрузить иконки: ") +
+                                ex.what());
+                app_->quit();
+            }
+        }
+
+        void setup_ui() {
+            set_title("Настройка алармов");
+            auto css = Gtk::CssProvider::create();
+            css->load_from_data(R"(
+                * {
+                    font-family: Sans;
+                    font-size: 14px;
+                }
+                #read-only {
+                    opacity: 0.75;
+                }
+                #white-background {
+                    background-image: none;
+                    background-color: white;
+                }
+            )");
+            auto screen = get_screen();
+            Gtk::StyleContext::add_provider_for_screen(
+                screen, css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+            set_titlebar(header_bar);
+            add(vbox_main);
+
+            vbox_main.set_hexpand(true);
+            vbox_main.set_vexpand(true);
+            header_bar.set_show_close_button(true);
+            header_bar.set_decoration_layout("menu:minimize,maximize,close");
+        }
+
+        void setup_menubuttons() {
+            menubutton_file.set_label("Файл");
+            menubutton_file.set_name("button-without-border");
+            menubutton_file.set_relief(Gtk::RELIEF_NONE);
+            header_bar.pack_start(menubutton_file);
+            menu_file.append(menuitem_save);
+            menuitem_save.add(menuitem_save_box);
+            menuitem_save_box.pack_start(menuitem_save_icon, Gtk::PACK_SHRINK);
+            menuitem_save_box.pack_start(menuitem_save_label, Gtk::PACK_SHRINK);
+            menu_file.append(menuitem_exit);
+            menuitem_exit.add(menuitem_exit_box);
+            menuitem_exit_box.pack_start(menuitem_exit_label, Gtk::PACK_SHRINK);
+            menubutton_file.set_popup(menu_file);
+            menu_file.show_all();
+
+            menuitem_edit_icon = Gtk::Image(pixbuf_edit);
+            menubutton_edit.set_label("Правка");
+            menubutton_edit.set_name("button-without-border");
+            menubutton_edit.set_relief(Gtk::RELIEF_NONE);
+            header_bar.pack_start(menubutton_edit);
+            menu_edit.append(menuitem_delete);
+            menuitem_delete.add(menuitem_delete_box);
+            menuitem_delete_box.pack_start(menuitem_delete_icon,
+                                           Gtk::PACK_SHRINK);
+            menuitem_delete_box.pack_start(menuitem_delete_label,
+                                           Gtk::PACK_SHRINK);
+            menubutton_edit.set_popup(menu_edit);
+            menu_edit.show_all();
+
+            menubutton_service.set_label("Сервис");
+            menubutton_service.set_name("button-without-border");
+            menubutton_service.set_relief(Gtk::RELIEF_NONE);
+            header_bar.pack_start(menubutton_service);
+            menu_service.show_all();
+
+            menuitem_help_icon = Gtk::Image(pixbuf_help);
+            menubutton_help.set_label("Помощь");
+            menubutton_help.set_name("button-without-border");
+            menubutton_help.set_relief(Gtk::RELIEF_NONE);
+            header_bar.pack_start(menubutton_help);
+            menu_help.append(menuitem_help);
+            menuitem_help.add(menuitem_help_box);
+            menuitem_help_box.pack_start(menuitem_help_icon, Gtk::PACK_SHRINK);
+            menuitem_help_box.pack_start(menuitem_help_label, Gtk::PACK_SHRINK);
+            menubutton_help.set_popup(menu_help);
+            menu_help.show_all();
+        }
+
+        void setup_top_bar() {
+            vbox_main.pack_start(top_bar, Gtk::PACK_SHRINK);
+
+            button_save.set_tooltip_text("Сохранить (Ctrl+S)");
+            top_bar.pack_start(button_save, Gtk::PACK_SHRINK);
+            button_save.set_image(button_save_icon);
+            button_save.set_always_show_image(true);
+            button_save_disable();
+            top_bar.pack_start(top_bar_separator1, Gtk::PACK_SHRINK);
+
+            button_delete_icon = Gtk::Image(pixbuf_delete);
+            top_bar.pack_start(button_delete, Gtk::PACK_SHRINK);
+            button_delete.set_image(button_delete_icon);
+            button_delete.set_always_show_image(true);
+
+            set_margin(top_bar, 0, 5);
+            button_save.set_margin_left(5);
+        }
+
+        void setup_signals() {
+            signal_delete_event().connect([this](GdkEventAny *event) {
+                bool ret = on_exit_clicked();
+                return ret;
+            });
+
+            button_save.signal_clicked().connect(
+                [this]() { on_save_clicked(); });
+
+            menuitem_save.signal_activate().connect(
+                [this]() { on_save_clicked(); });
+            menuitem_exit.signal_activate().connect(
+                [this]() { on_exit_clicked(); });
+        }
+
+        void setup_data() {
+              // if something went wrong
+              /* Glib::signal_idle().connect([this] {
+                  app_->quit();
+              });*/
+          }
+
+        Gtk::Box vbox_main{Gtk::ORIENTATION_VERTICAL, 10};
+        Gtk::HeaderBar header_bar;
+        Gtk::Box top_bar{Gtk::ORIENTATION_HORIZONTAL, 10};
+        Gtk::Separator top_bar_separator1{Gtk::ORIENTATION_HORIZONTAL};
+
+        Gtk::MenuButton menubutton_file, menubutton_edit, menubutton_service,
+            menubutton_help;
+        Gtk::Menu menu_file, menu_edit, menu_service, menu_help;
+        Gtk::MenuItem menuitem_save, menuitem_delete, menuitem_exit,
+            menuitem_help;
+        Gtk::Label menuitem_save_label, menuitem_exit_label,
+            menuitem_delete_label, menuitem_help_label;
+        Gtk::Box menuitem_save_box{Gtk::ORIENTATION_HORIZONTAL, 5},
+            menuitem_delete_box{Gtk::ORIENTATION_HORIZONTAL, 5},
+            menuitem_exit_box{Gtk::ORIENTATION_HORIZONTAL, 5},
+            menuitem_help_box{Gtk::ORIENTATION_HORIZONTAL, 5};
+
+        Glib::RefPtr<Gdk::Pixbuf> pixbuf_save_enabled, pixbuf_save_disabled,
+            pixbuf_delete, pixbuf_edit, pixbuf_help;
+        Gtk::Button button_save, button_delete;
+        Gtk::Image menuitem_save_icon, menuitem_delete_icon, menuitem_edit_icon,
+            menuitem_help_icon, button_save_icon, button_delete_icon;
+
+        bool unsaved_ = false;
+        Glib::RefPtr<Gio::Application> app_;
+};
+
+int main(int argc, char *argv[]) {
+    auto app = Gtk::Application::create("$app_id");
+    $app_window window(app);
+    return app->run(window);
+}
+</TEMPLATE_BODY>
+
+gtkmm3 bottom-right notification
+TAGS: gtkmm3, method, code
+VARS: const Glib::ustring&; message, int; timeout
+<TEMPLATE_BODY>
+// Glib::RefPtr<Gio::Application> app = Gtk::Application::get_default(); can be stored as class member
+void show_notification(const Glib::ustring &title,
+                        const Glib::ustring &$1, int $2) {
+    Glib::ustring id = Glib::ustring::format(
+        "notif-%lu-%d", static_cast<unsigned long>(time(nullptr)),
+        rand() % 1000);
+    auto notification = Gio::Notification::create(title);
+    notification->set_body($1);
+    notification->set_priority(Gio::NotificationPriority(0));
+    Glib::signal_idle().connect([this, notification, id]() {
+        if (app) {
+            app->send_notification(id, notification);
+        }
+        return false;
+    });
+    Glib::signal_timeout().connect_seconds(
+        [this, id]() {
+            if (app) {
+                app->withdraw_notification(id);
+            }
+            return false;
+        },
+        $2);
+}
+</TEMPLATE_BODY>
+
+gtkmm3 date combobox
+TAGS: gtkmm3, widget, class
+<TEMPLATE_BODY>
+#include <algorithm>
+#include <cstdio>
+#include <gtkmm.h>
+
+class DateComboBox : public Gtk::Box {
+  public:
+    explicit DateComboBox(
+        char initial_day_shift = 0)
+        : Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 4), entry_(*this) {
+        dropdown_.set_relief(Gtk::RELIEF_NONE);
+        dropdown_.set_focus_on_click(false);
+        auto *im = Gtk::make_managed<Gtk::Image>();
+        im->set_from_icon_name("pan-down-symbolic",
+                               Gtk::ICON_SIZE_SMALL_TOOLBAR);
+        if (im->get_storage_type() == Gtk::IMAGE_EMPTY)
+            dropdown_.set_label("▼");
+        else
+            dropdown_.set_image(*im);
+        pack_start(entry_, Gtk::PACK_EXPAND_WIDGET);
+        pack_start(dropdown_, Gtk::PACK_SHRINK);
+        today_btn_.signal_clicked().connect([this]() {
+            const Glib::DateTime now = Glib::DateTime::create_now_local();
+            set_date(static_cast<guint>(now.get_year()),
+                     static_cast<guint>(now.get_month() - 1),
+                     static_cast<guint>(now.get_day_of_month()));
+            popover_.popdown();
+        });
+        popover_contents_.pack_start(cal_, Gtk::PACK_SHRINK);
+        popover_contents_.pack_start(today_btn_, Gtk::PACK_SHRINK);
+        popover_.add(popover_contents_);
+        popover_.set_relative_to(entry_);
+        popover_.set_position(Gtk::POS_BOTTOM);
+        popover_.set_modal(true);
+        dropdown_.signal_clicked().connect([this]() {
+            sync_calendar_from_entry();
+            popover_.show_all();
+            popover_.popup();
+        });
+        auto nav = sigc::mem_fun(*this, &DateComboBox::calendar_begin_nav);
+        cal_.signal_month_changed().connect(nav);
+        cal_.signal_prev_month().connect(nav);
+        cal_.signal_next_month().connect(nav);
+        cal_.signal_prev_year().connect(nav);
+        cal_.signal_next_year().connect(nav);
+        cal_.signal_day_selected().connect(
+            sigc::mem_fun(*this, &DateComboBox::calendar_on_day_selected));
+        const Glib::DateTime now = Glib::DateTime::create_now_local();
+        Glib::DateTime day = now;
+        if (initial_day_shift != 0) {
+            Glib::DateTime nxt = now.add_days(initial_day_shift);
+            if (nxt)
+                day = nxt;
+        }
+        if (day) {
+            set_date(static_cast<guint>(day.get_year()),
+                     static_cast<guint>(day.get_month() - 1),
+                     static_cast<guint>(day.get_day_of_month()));
+        }
+    }
+    DateComboBox(const DateComboBox &) = delete;
+    DateComboBox &operator=(const DateComboBox &) = delete;
+    void get_date(guint &year, guint &month, guint &day) {
+        cal_.get_date(year, month, day);
+    }
+    void set_date(guint year, guint month, guint day,
+                  bool clear_entry_partial = true) {
+        if (clear_entry_partial)
+            entry_.clear_partial_state();
+        ++calendar_programmatic_;
+        cal_.select_month(month, year);
+        cal_.select_day(day);
+        --calendar_programmatic_;
+        sync_entry_from_calendar();
+    }
+  private:
+    void calendar_begin_nav() {
+        suppress_calendar_popdown_ = true;
+        calendar_nav_idle_.disconnect();
+        calendar_nav_idle_ = Glib::signal_idle().connect([this]() {
+            suppress_calendar_popdown_ = false;
+            return false;
+        });
+    }
+    void calendar_on_day_selected() {
+        if (calendar_programmatic_ > 0)
+            return;
+        entry_.clear_partial_state();
+        sync_entry_from_calendar();
+        if (suppress_calendar_popdown_) {
+            suppress_calendar_popdown_ = false;
+            calendar_nav_idle_.disconnect();
+            return;
+        }
+        popover_.popdown();
+    }
+    class DateEntry : public Gtk::Entry {
+      public:
+        void clear_partial_state() { partial_.fill(-1); }
+        void set_text(const Glib::ustring &text) {
+            allow_buffer_change_ = true;
+            gtk_entry_set_text(GTK_ENTRY(gobj()), text.c_str());
+            allow_buffer_change_ = false;
+        }
+        explicit DateEntry(DateComboBox &combo)
+            : Gtk::Entry(), combo_(combo) {
+            set_editable(true);
+            set_can_focus(true);
+            set_width_chars(12);
+            set_has_frame(true);
+            get_style_context()->add_class("datefield-entry");
+            auto css = Gtk::CssProvider::create();
+            try {
+                css->load_from_data(
+                    ".datefield-entry { caret-color: transparent; }");
+                get_style_context()->add_provider(
+                    css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+            } catch (const Glib::Error &) {
+            }
+            signal_insert_text().connect(
+                [this](const Glib::ustring &, int *) {
+                    if (allow_buffer_change_)
+                        return;
+                    g_signal_stop_emission_by_name(G_OBJECT(gobj()),
+                                                   "insert-text");
+                },
+                false);
+        }
+        DateEntry(const DateEntry &) = delete;
+        DateEntry &operator=(const DateEntry &) = delete;
+      protected:
+        bool on_key_press_event(GdkEventKey *e) override {
+            auto nav = [this](int seg) {
+                clear_partial_pending();
+                active_segment_ = seg;
+                select_region_for_segment(active_segment_);
+            };
+            switch (e->keyval) {
+            case GDK_KEY_Up:
+            case GDK_KEY_KP_Up:
+                adjust_active_segment(1);
+                return true;
+            case GDK_KEY_Down:
+            case GDK_KEY_KP_Down:
+                adjust_active_segment(-1);
+                return true;
+            case GDK_KEY_Left:
+            case GDK_KEY_KP_Left:
+                nav((active_segment_ + 2) % 3);
+                return true;
+            case GDK_KEY_Right:
+            case GDK_KEY_KP_Right:
+                nav((active_segment_ + 1) % 3);
+                return true;
+            case GDK_KEY_Home:
+                nav(0);
+                return true;
+            case GDK_KEY_End:
+                nav(2);
+                return true;
+            case GDK_KEY_BackSpace:
+            case GDK_KEY_Delete:
+            case GDK_KEY_KP_Delete:
+                apply_backspace_segment();
+                return true;
+            case GDK_KEY_Tab:
+            case GDK_KEY_ISO_Left_Tab:
+            case GDK_KEY_KP_Tab:
+            case GDK_KEY_Return:
+            case GDK_KEY_KP_Enter:
+                return Gtk::Entry::on_key_press_event(e);
+            default:
+                break;
+            }
+            int d = -1;
+            guint keyval = e->keyval;
+            if (keyval >= GDK_KEY_0 && keyval <= GDK_KEY_9)
+                d = static_cast<int>(keyval - GDK_KEY_0);
+            if (keyval >= GDK_KEY_KP_0 && keyval <= GDK_KEY_KP_9)
+                d = static_cast<int>(keyval - GDK_KEY_KP_0);
+            if (d >= 0) {
+                apply_digit_to_segment(d);
+                return true;
+            }
+            const guint32 uc = gdk_keyval_to_unicode(keyval);
+            if (uc >= 0x20U && !g_unichar_iscntrl(static_cast<gunichar>(uc)))
+                return true;
+            return Gtk::Entry::on_key_press_event(e);
+        }
+        bool on_button_press_event(GdkEventButton *e) override {
+            if (e->button == 1 && (e->type == GDK_2BUTTON_PRESS ||
+                                  e->type == GDK_3BUTTON_PRESS)) {
+                int ix = 0, iy = 0;
+                if (map_param_to_widget_xy(e, ix, iy) &&
+                    point_in_text_area(ix, iy)) {
+                    const int seg = segment_from_widget_xy(
+                        static_cast<double>(ix), static_cast<double>(iy));
+                    if (seg >= 0) {
+                        clear_partial_pending();
+                        active_segment_ = seg;
+                        grab_focus();
+                        select_region_for_segment(active_segment_);
+                        return true;
+                    }
+                }
+            }
+            if (e->button == 1) {
+                clear_partial_pending();
+                sync_active_segment_from_entry_state();
+            }
+            return Gtk::Entry::on_button_press_event(e);
+        }
+        bool on_focus_in_event(GdkEventFocus *e) override {
+            select_region_for_segment(active_segment_);
+            return Gtk::Entry::on_focus_in_event(e);
+        }
+        bool on_focus_out_event(GdkEventFocus *e) override {
+            const bool ret = Gtk::Entry::on_focus_out_event(e);
+            select_region(0, 0);
+            return ret;
+        }
+      private:
+        DateComboBox &combo_;
+        bool allow_buffer_change_{false};
+        std::array<int, 3> partial_{-1, -1, -1};
+        guint snapshot_y_{0};
+        guint snapshot_m0_{0};
+        guint snapshot_d_{0};
+        void clear_partial_pending() { partial_.fill(-1); }
+        static constexpr int kSegStart[3] = {0, 3, 6};
+        static constexpr int kSegEnd[3] = {2, 5, 10};
+        static constexpr int kCharSegment[10] = {0, 0, 0, 1, 1, 1, 2, 2, 2, 2};
+        int active_segment_ = 0;
+        int segment_from_mixed_selection(int s, int e) const {
+            s = std::max(0, std::min(s, 9));
+            e = std::max(s + 1, std::min(e, 10));
+            int count[3] = {0, 0, 0};
+            for (int i = s; i < e; ++i)
+                ++count[kCharSegment[i]];
+            int maxc = std::max({count[0], count[1], count[2]});
+            int nmax = 0;
+            for (int k = 0; k < 3; ++k)
+                if (count[k] == maxc)
+                    ++nmax;
+            if (nmax != 1)
+                return kCharSegment[s];
+            for (int k = 0; k < 3; ++k)
+                if (count[k] == maxc)
+                    return k;
+            return 0;
+        }
+        void sync_active_segment_from_entry_state() {
+            int s = 0, e = 0;
+            if (get_selection_bounds(s, e)) {
+                if (s > e)
+                    std::swap(s, e);
+                if (e > s) {
+                    active_segment_ = segment_from_mixed_selection(s, e);
+                    return;
+                }
+            }
+            int pos = get_position();
+            if (pos < 0)
+                pos = 0;
+            if (pos > 9)
+                pos = 9;
+            active_segment_ = kCharSegment[pos];
+        }
+        static bool try_commit_date(DateComboBox &combo, guint y, guint month0,
+                                    int day, bool clear_entry_partial) {
+            while (day >= 1) {
+                Glib::DateTime dt = Glib::DateTime::create_local(
+                    static_cast<int>(y), static_cast<int>(month0) + 1,
+                    static_cast<int>(day), 0, 0, 0.0);
+                if (dt) {
+                    combo.set_date(y, month0, static_cast<guint>(day),
+                                   clear_entry_partial);
+                    return true;
+                }
+                --day;
+            }
+            return false;
+        }
+        void apply_digit_to_segment(int digit) {
+            sync_active_segment_from_entry_state();
+            guint y = 0, gm0 = 0, gd = 0;
+            combo_.get_date(y, gm0, gd);
+            int mo = static_cast<int>(gm0) + 1;
+            int day = static_cast<int>(gd);
+            int yr = static_cast<int>(y);
+            switch (active_segment_) {
+            case 0:
+                if (partial_[0] >= 0) {
+                    day = partial_[0] * 10 + digit;
+                    partial_[0] = -1;
+                    day = std::max(1, std::min(31, day));
+                } else if (digit >= 4 && digit <= 9) {
+                    day = digit;
+                } else {
+                    snapshot_y_ = y;
+                    snapshot_m0_ = gm0;
+                    snapshot_d_ = gd;
+                    partial_[0] = digit;
+                    day = digit == 0 ? 1 : (digit == 1 ? 10 : (digit == 2 ? 20 : 30));
+                }
+                break;
+            case 1:
+                if (partial_[1] >= 0) {
+                    if (partial_[1] == 0) {
+                        mo = digit;
+                        mo = std::max(1, std::min(12, mo));
+                    } else {
+                        mo = 10 + digit;
+                        mo = std::max(1, std::min(12, mo));
+                    }
+                    partial_[1] = -1;
+                } else if (digit >= 2 && digit <= 9) {
+                    mo = digit;
+                } else if (digit == 0) {
+                    snapshot_y_ = y;
+                    snapshot_m0_ = gm0;
+                    snapshot_d_ = gd;
+                    partial_[1] = 0;
+                    mo = 1;
+                } else {
+                    snapshot_y_ = y;
+                    snapshot_m0_ = gm0;
+                    snapshot_d_ = gd;
+                    partial_[1] = 1;
+                    mo = 10;
+                }
+                break;
+            case 2:
+                yr = (yr % 1000) * 10 + digit;
+                yr = std::max(1, std::min(9999, yr));
+                break;
+            default:
+                return;
+            }
+            if (try_commit_date(combo_, static_cast<guint>(yr),
+                                static_cast<guint>(mo - 1), day, false))
+                select_region_for_segment(active_segment_);
+        }
+        void apply_backspace_segment() {
+            sync_active_segment_from_entry_state();
+            const int seg = active_segment_;
+            partial_.fill(-1);
+            guint y = 0, gm0 = 0, gd = 0;
+            combo_.get_date(y, gm0, gd);
+            int mo = static_cast<int>(gm0) + 1;
+            int d = static_cast<int>(gd);
+            int yr = static_cast<int>(y);
+            switch (seg) {
+            case 0:
+                d = 1;
+                break;
+            case 1:
+                mo = 1;
+                break;
+            case 2:
+                yr = 2000;
+                break;
+            default:
+                return;
+            }
+            if (!try_commit_date(combo_, static_cast<guint>(yr),
+                                 static_cast<guint>(mo - 1), d, true))
+                combo_.set_date(static_cast<guint>(yr),
+                                  static_cast<guint>(mo - 1),
+                                  static_cast<guint>(d), true);
+            select_region_for_segment(active_segment_);
+        }
+        bool map_param_to_widget_xy(GdkEventButton *e, int &ix, int &iy) {
+            GtkWidget *widget = GTK_WIDGET(gobj());
+            GdkWindow *win_widget = gtk_widget_get_window(widget);
+            if (!e->window || !win_widget)
+                return false;
+            gdouble px = e->x, py = e->y;
+            for (GdkWindow *cur = e->window; cur && cur != win_widget;
+                 cur = gdk_window_get_parent(cur)) {
+                gdk_window_coords_to_parent(cur, px, py, &px, &py);
+            }
+            ix = static_cast<int>(px);
+            iy = static_cast<int>(py);
+            return true;
+        }
+        bool point_in_text_area(int ix, int iy) {
+            GtkEntry *ge = GTK_ENTRY(gobj());
+            GdkRectangle ta{};
+            gtk_entry_get_text_area(ge, &ta);
+            return ix >= ta.x && ix < ta.x + ta.width && iy >= ta.y &&
+                   iy < ta.y + ta.height;
+        }
+        void select_region_for_segment(int seg) {
+            seg = std::max(0, std::min(2, seg));
+            select_region(kSegStart[seg], kSegEnd[seg]);
+        }
+        int segment_from_widget_xy(double wx, double wy) {
+            int xoff = 0, yoff = 0;
+            get_layout_offsets(xoff, yoff);
+            const int lx = static_cast<int>(wx) - xoff;
+            const int ly = static_cast<int>(wy) - yoff;
+            Glib::RefPtr<Pango::Layout> layout = get_layout();
+            if (!layout)
+                return -1;
+            int index = 0, trailing = 0;
+            if (!layout->xy_to_index(lx * Pango::SCALE, ly * Pango::SCALE, index,
+                                     trailing))
+                return -1;
+            const int text_idx = layout_index_to_text_index(index);
+            return text_idx < 0 ? 0 : (text_idx > 9 ? 2 : kCharSegment[text_idx]);
+        }
+        void adjust_active_segment(int delta) {
+            sync_active_segment_from_entry_state();
+            guint y = 0, gm = 0, gd = 0;
+            combo_.get_date(y, gm, gd);
+            Glib::DateTime cur = Glib::DateTime::create_local(
+                static_cast<int>(y), static_cast<int>(gm) + 1,
+                static_cast<int>(gd), 0, 0, 0.0);
+            if (!cur)
+                return;
+            Glib::DateTime nxt = cur;
+            switch (active_segment_) {
+            case 0:
+                nxt = cur.add_days(delta);
+                break;
+            case 1:
+                nxt = cur.add_months(delta);
+                break;
+            case 2:
+                nxt = cur.add_years(delta);
+                break;
+            default:
+                return;
+            }
+            if (!nxt)
+                return;
+            combo_.set_date(static_cast<guint>(nxt.get_year()),
+                            static_cast<guint>(nxt.get_month() - 1),
+                            static_cast<guint>(nxt.get_day_of_month()));
+            select_region_for_segment(active_segment_);
+        }
+    };
+    void sync_entry_from_calendar() {
+        guint y = 0, m = 0, d = 0;
+        cal_.get_date(y, m, d);
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%02u.%02u.%04u", d, m + 1, y);
+        entry_.set_text(buf);
+    }
+    void sync_calendar_from_entry() {
+        const Glib::ustring t = entry_.get_text();
+        unsigned d = 0, mo = 0, y = 0;
+        if (std::sscanf(t.c_str(), "%u.%u.%u", &d, &mo, &y) == 3 && mo >= 1 &&
+            mo <= 12 && d >= 1 && d <= 31 && y >= 1) {
+            ++calendar_programmatic_;
+            cal_.select_month(mo - 1, y);
+            cal_.select_day(d);
+            --calendar_programmatic_;
+        }
+    }
+    int calendar_programmatic_{0};
+    bool suppress_calendar_popdown_{false};
+    sigc::connection calendar_nav_idle_;
+    Gtk::Calendar cal_;
+    Gtk::Button dropdown_;
+    Gtk::Box popover_contents_{Gtk::ORIENTATION_VERTICAL, 6};
+    Gtk::Button today_btn_{"Сегодня"};
+    Gtk::Popover popover_;
+    DateEntry entry_;
+};
+</TEMPLATE_BODY>
+
+gtkmm3 time spinbutton with milliseconds from midnight mode
+TAGS: gtkmm3, widget, class
+<TEMPLATE_BODY>
+#include <algorithm>
+#include <cstdio>
+#include <gtkmm.h>
+
+class TimeMsSpinButton : public Gtk::SpinButton {
+  public:
+    TimeMsSpinButton()
+        : Gtk::SpinButton(Gtk::Adjustment::create(0, 0, 86399, 1, 60, 0), 1.0,
+                          0) {
+        set_numeric(false);
+        set_wrap(true);
+        set_width_chars(12);
+        get_style_context()->add_class("timeofday-spin");
+        auto css = Gtk::CssProvider::create();
+        try {
+            css->load_from_data(
+                ".timeofday-spin { caret-color: transparent; }");
+            get_style_context()->add_provider(
+                css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        } catch (const Glib::Error &) {
+        }
+        auto css_ms = Gtk::CssProvider::create();
+        try {
+            css_ms->load_from_data(
+                ".timeofday-spin.timeofday-ms-mode { caret-color: "
+                "currentColor; }");
+            get_style_context()->add_provider(
+                css_ms, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        } catch (const Glib::Error &) {
+        }
+        signal_output().connect(
+            [this]() { return this->format_output(); });
+        signal_input().connect(
+            [this](double *nv) { return this->format_input(nv); });
+        get_adjustment()->signal_value_changed().connect([this]() {
+            if (suppress_partial_clear_)
+                return;
+            partial_.fill(-1);
+        });
+        set_icon_from_icon_name("preferences-system-time-symbolic",
+                                Gtk::ENTRY_ICON_SECONDARY);
+        set_icon_activatable(true, Gtk::ENTRY_ICON_SECONDARY);
+        refresh_ms_mode_icon();
+        signal_icon_press().connect(
+            [this](Gtk::EntryIconPosition pos, const GdkEventButton *) {
+                if (pos == Gtk::ENTRY_ICON_SECONDARY)
+                    toggle_ms_display_mode();
+            });
+        sync_adj_steps_from_segment();
+        update();
+    }
+    TimeMsSpinButton(const TimeMsSpinButton &) = delete;
+    TimeMsSpinButton &operator=(const TimeMsSpinButton &) = delete;
+    int seconds_from_midnight() const {
+        const double v = get_adjustment()->get_value();
+        if (ms_display_mode_)
+            return static_cast<int>(v + 0.5) / 1000;
+        return static_cast<int>(v);
+    }
+    int milliseconds_from_midnight() const {
+        const double v = get_adjustment()->get_value();
+        if (ms_display_mode_)
+            return std::max(0, std::min(86399999, static_cast<int>(v + 0.5)));
+        return static_cast<int>(v) * 1000;
+    }
+    void set_seconds_from_midnight(int sec) {
+        if (sec < 0)
+            sec = 0;
+        if (sec > 86399)
+            sec = 86399;
+        partial_.fill(-1);
+        if (ms_display_mode_)
+            get_adjustment()->set_value(static_cast<double>(sec * 1000));
+        else
+            get_adjustment()->set_value(static_cast<double>(sec));
+        update();
+    }
+    void set_milliseconds_from_midnight(int ms) {
+        if (ms < 0)
+            ms = 0;
+        if (ms > 86399999)
+            ms = 86399999;
+        partial_.fill(-1);
+        if (ms_display_mode_)
+            get_adjustment()->set_value(static_cast<double>(ms));
+        else
+            get_adjustment()->set_value(static_cast<double>(ms / 1000));
+        update();
+    }
+
+  private:
+    bool format_output() {
+        if (ms_display_mode_) {
+            int ms = static_cast<int>(get_adjustment()->get_value() + 0.5);
+            ms = std::max(0, std::min(86399999, ms));
+            char buf[32];
+            std::snprintf(buf, sizeof buf, "%d", ms);
+            set_text(buf);
+            return true;
+        }
+        int sec = static_cast<int>(get_adjustment()->get_value());
+        sec = std::max(0, std::min(86399, sec));
+        const int h = sec / 3600;
+        const int m = (sec % 3600) / 60;
+        const int s = sec % 60;
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "%02d:%02d:%02d", h, m, s);
+        set_text(buf);
+        sync_adj_steps_from_segment();
+        if (has_focus())
+            select_region_for_segment(active_segment_);
+        return true;
+    }
+    int format_input(double *new_value) {
+        if (ms_display_mode_) {
+            const Glib::ustring t = get_text();
+            char *end = nullptr;
+            const long long v = std::strtoll(t.c_str(), &end, 10);
+            if (end == t.c_str())
+                return Gtk::INPUT_ERROR;
+            long long clamped = v;
+            if (v < 0)
+                clamped = 0;
+            else if (v > 86399999)
+                clamped = 86399999;
+            *new_value = static_cast<double>(clamped);
+            return 1;
+        }
+        const Glib::ustring t = get_text();
+        int h = 0, m = 0, s = 0;
+        if (std::sscanf(t.c_str(), "%d:%d:%d", &h, &m, &s) != 3)
+            return Gtk::INPUT_ERROR;
+        if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59)
+            return Gtk::INPUT_ERROR;
+        *new_value = static_cast<double>(h * 3600 + m * 60 + s);
+        return 1;
+    }
+    bool on_key_press_event(GdkEventKey *e) override {
+        if (ms_display_mode_)
+            return Gtk::SpinButton::on_key_press_event(e);
+        auto nav = [this](int seg) {
+            clear_partial_pending();
+            active_segment_ = seg;
+            sync_adj_steps_from_segment();
+            select_region_for_segment(active_segment_);
+        };
+        switch (e->keyval) {
+        case GDK_KEY_Up:
+        case GDK_KEY_KP_Up:
+            partial_.fill(-1);
+            adjust_active_segment(1);
+            return true;
+        case GDK_KEY_Down:
+        case GDK_KEY_KP_Down:
+            partial_.fill(-1);
+            adjust_active_segment(-1);
+            return true;
+        case GDK_KEY_Left:
+        case GDK_KEY_KP_Left:
+            nav((active_segment_ + 2) % 3);
+            return true;
+        case GDK_KEY_Right:
+        case GDK_KEY_KP_Right:
+            nav((active_segment_ + 1) % 3);
+            return true;
+        case GDK_KEY_Home:
+            nav(0);
+            return true;
+        case GDK_KEY_End:
+            nav(2);
+            return true;
+        case GDK_KEY_BackSpace:
+        case GDK_KEY_Delete:
+        case GDK_KEY_KP_Delete:
+            apply_backspace_segment();
+            return true;
+        case GDK_KEY_Tab:
+        case GDK_KEY_ISO_Left_Tab:
+        case GDK_KEY_KP_Tab:
+        case GDK_KEY_Return:
+        case GDK_KEY_KP_Enter:
+            return Gtk::SpinButton::on_key_press_event(e);
+        default:
+            break;
+        }
+        int d = -1;
+        guint keyval = e->keyval;
+        if (keyval >= GDK_KEY_0 && keyval <= GDK_KEY_9)
+            d = static_cast<int>(keyval - GDK_KEY_0);
+        if (keyval >= GDK_KEY_KP_0 && keyval <= GDK_KEY_KP_9)
+            d = static_cast<int>(keyval - GDK_KEY_KP_0);
+        if (d >= 0) {
+            apply_digit_to_segment(d);
+            return true;
+        }
+        const guint32 uc = gdk_keyval_to_unicode(keyval);
+        if (uc >= 0x20U && !g_unichar_iscntrl(static_cast<gunichar>(uc)))
+            return true;
+        return Gtk::SpinButton::on_key_press_event(e);
+    }
+    bool on_button_press_event(GdkEventButton *e) override {
+        if (ms_display_mode_)
+            return Gtk::SpinButton::on_button_press_event(e);
+        if (e->button == 1 && (e->type == GDK_2BUTTON_PRESS ||
+                              e->type == GDK_3BUTTON_PRESS)) {
+            int ix = 0, iy = 0;
+            if (map_param_to_widget_xy(e, ix, iy) && point_in_text_area(ix, iy)) {
+                const int seg =
+                    segment_from_widget_xy(static_cast<double>(ix),
+                                           static_cast<double>(iy));
+                if (seg >= 0) {
+                    clear_partial_pending();
+                    active_segment_ = seg;
+                    sync_adj_steps_from_segment();
+                    grab_focus();
+                    select_region_for_segment(active_segment_);
+                    return true;
+                }
+            }
+        }
+        if (e->button == 1) {
+            clear_partial_pending();
+            sync_active_segment_from_entry_state();
+            sync_adj_steps_from_segment();
+        }
+        return Gtk::SpinButton::on_button_press_event(e);
+    }
+    bool on_focus_in_event(GdkEventFocus *e) override {
+        if (ms_display_mode_)
+            return Gtk::SpinButton::on_focus_in_event(e);
+        sync_adj_steps_from_segment();
+        select_region_for_segment(active_segment_);
+        return Gtk::SpinButton::on_focus_in_event(e);
+    }
+    bool on_focus_out_event(GdkEventFocus *e) override {
+        if (ms_display_mode_)
+            return Gtk::SpinButton::on_focus_out_event(e);
+        const bool ret = Gtk::SpinButton::on_focus_out_event(e);
+        select_region(0, 0);
+        return ret;
+    }
+
+    static constexpr int kSegStart[3] = {0, 3, 6};
+    static constexpr int kSegEnd[3] = {2, 5, 8};
+    static constexpr int kCharSegment[8] = {0, 0, 0, 1, 1, 1, 2, 2};
+    int active_segment_ = 0;
+    std::array<int, 3> partial_{-1, -1, -1};
+    int snapshot_sec_{0};
+    bool suppress_partial_clear_{false};
+    bool ms_display_mode_{false};
+    void clear_partial_pending() { partial_.fill(-1); }
+    void refresh_ms_mode_icon() {
+        if (ms_display_mode_) {
+            set_icon_from_icon_name("input-dialpad-symbolic",
+                                    Gtk::ENTRY_ICON_SECONDARY);
+            set_icon_tooltip_text(
+                "Текущий режим: миллисекунды от полуночи — нажмите для ЧЧ:ММ:СС",
+                Gtk::ENTRY_ICON_SECONDARY);
+        } else {
+            set_icon_from_icon_name("preferences-system-time-symbolic",
+                                    Gtk::ENTRY_ICON_SECONDARY);
+            set_icon_tooltip_text(
+                "Текущий режим: ЧЧ:ММ:СС — нажмите для миллисекунд от полуночи",
+                Gtk::ENTRY_ICON_SECONDARY);
+        }
+    }
+    void toggle_ms_display_mode() {
+        Gtk::SpinButton::update();
+        Glib::RefPtr<Gtk::Adjustment> a = get_adjustment();
+        int ms = 0;
+        if (ms_display_mode_)
+            ms = static_cast<int>(a->get_value() + 0.5);
+        else
+            ms = static_cast<int>(a->get_value()) * 1000;
+        ms = std::max(0, std::min(86399999, ms));
+        ms_display_mode_ = !ms_display_mode_;
+        if (ms_display_mode_) {
+            get_style_context()->add_class("timeofday-ms-mode");
+            set_numeric(true);
+            set_update_policy(Gtk::UPDATE_ALWAYS);
+            a->set_lower(0);
+            a->set_upper(86399999);
+            a->set_step_increment(1);
+            a->set_page_increment(1000);
+            set_increments(1, 1000);
+            set_digits(0);
+            a->set_value(static_cast<double>(ms));
+        } else {
+            get_style_context()->remove_class("timeofday-ms-mode");
+            set_numeric(false);
+            set_update_policy(Gtk::UPDATE_IF_VALID);
+            const int sec = std::max(0, std::min(86399, ms / 1000));
+            a->set_lower(0);
+            a->set_upper(86399);
+            a->set_step_increment(1);
+            a->set_page_increment(60);
+            set_digits(0);
+            a->set_value(static_cast<double>(sec));
+            active_segment_ = 0;
+        }
+        partial_.fill(-1);
+        sync_adj_steps_from_segment();
+        Gtk::SpinButton::update();
+        refresh_ms_mode_icon();
+        if (!ms_display_mode_ && has_focus()) {
+            sync_adj_steps_from_segment();
+            select_region_for_segment(active_segment_);
+        }
+    }
+    static int segment_from_char_index(int idx) {
+        if (idx < 0)
+            return 0;
+        if (idx >= 8)
+            return 2;
+        return kCharSegment[idx];
+    }
+    int segment_from_mixed_selection(int s, int e) const {
+        s = std::max(0, std::min(s, 7));
+        e = std::max(s + 1, std::min(e, 8));
+        int count[3] = {0, 0, 0};
+        for (int i = s; i < e; ++i)
+            ++count[segment_from_char_index(i)];
+        int maxc = std::max({count[0], count[1], count[2]});
+        int nmax = 0;
+        for (int k = 0; k < 3; ++k)
+            if (count[k] == maxc)
+                ++nmax;
+        if (nmax != 1)
+            return segment_from_char_index(s);
+        for (int k = 0; k < 3; ++k)
+            if (count[k] == maxc)
+                return k;
+        return 0;
+    }
+    void sync_active_segment_from_entry_state() {
+        int s = 0, e = 0;
+        if (get_selection_bounds(s, e)) {
+            if (s > e)
+                std::swap(s, e);
+            if (e > s) {
+                active_segment_ = segment_from_mixed_selection(s, e);
+                return;
+            }
+        }
+        int pos = get_position();
+        if (pos < 0)
+            pos = 0;
+        if (pos > 7)
+            pos = 7;
+        active_segment_ = segment_from_char_index(pos);
+    }
+    bool map_param_to_widget_xy(GdkEventButton *e, int &ix, int &iy) {
+        GtkWidget *widget = GTK_WIDGET(gobj());
+        GdkWindow *win_widget = gtk_widget_get_window(widget);
+        if (!e->window || !win_widget)
+            return false;
+        gdouble px = e->x, py = e->y;
+        for (GdkWindow *cur = e->window; cur && cur != win_widget;
+             cur = gdk_window_get_parent(cur)) {
+            gdk_window_coords_to_parent(cur, px, py, &px, &py);
+        }
+        ix = static_cast<int>(px);
+        iy = static_cast<int>(py);
+        return true;
+    }
+    bool point_in_text_area(int ix, int iy) {
+        GtkEntry *ge = GTK_ENTRY(gobj());
+        GdkRectangle ta{};
+        gtk_entry_get_text_area(ge, &ta);
+        return ix >= ta.x && ix < ta.x + ta.width && iy >= ta.y &&
+               iy < ta.y + ta.height;
+    }
+    void sync_adj_steps_from_segment() {
+        if (ms_display_mode_) {
+            Glib::RefPtr<Gtk::Adjustment> a = get_adjustment();
+            a->set_step_increment(1.0);
+            a->set_page_increment(1000.0);
+            set_increments(1.0, 1000.0);
+            return;
+        }
+        const double step =
+            active_segment_ == 0 ? 3600.0 : (active_segment_ == 1 ? 60.0 : 1.0);
+        Glib::RefPtr<Gtk::Adjustment> a = get_adjustment();
+        a->set_step_increment(step);
+        a->set_page_increment(step * 10.0);
+        set_increments(step, step * 10.0);
+    }
+    void select_region_for_segment(int seg) {
+        seg = std::max(0, std::min(2, seg));
+        select_region(kSegStart[seg], kSegEnd[seg]);
+    }
+    int segment_from_widget_xy(double wx, double wy) {
+        int xoff = 0, yoff = 0;
+        get_layout_offsets(xoff, yoff);
+        const int lx = static_cast<int>(wx) - xoff;
+        const int ly = static_cast<int>(wy) - yoff;
+        Glib::RefPtr<Pango::Layout> layout = get_layout();
+        if (!layout)
+            return -1;
+        int index = 0, trailing = 0;
+        if (!layout->xy_to_index(lx * Pango::SCALE, ly * Pango::SCALE, index,
+                                 trailing))
+            return -1;
+        const int text_idx = layout_index_to_text_index(index);
+        return segment_from_char_index(text_idx);
+    }
+    void adjust_active_segment(int delta) {
+        sync_active_segment_from_entry_state();
+        const int step =
+            active_segment_ == 0 ? 3600 : (active_segment_ == 1 ? 60 : 1);
+        const int cur_sec = static_cast<int>(get_adjustment()->get_value());
+        long long ns = static_cast<long long>(cur_sec) +
+                       static_cast<long long>(delta) * step;
+        if (get_wrap()) {
+            ns %= 86400;
+            if (ns < 0)
+                ns += 86400;
+        } else {
+            ns = std::max<long long>(0, std::min<long long>(86399, ns));
+        }
+        get_adjustment()->set_value(static_cast<double>(ns));
+        update();
+    }
+    void apply_digit_to_segment(int digit) {
+        sync_active_segment_from_entry_state();
+        int sec = static_cast<int>(get_adjustment()->get_value());
+        int h = sec / 3600;
+        int m = (sec % 3600) / 60;
+        int s = sec % 60;
+        const int seg = active_segment_;
+        int *const p = &partial_[seg];
+        auto roll = [digit](int v, int mx) {
+            v = (v % 10) * 10 + digit;
+            return std::min(mx, v);
+        };
+        if (*p == 0) {
+            if (seg == 0)
+                h = roll(h, 23);
+            else if (seg == 1)
+                m = roll(m, 59);
+            else
+                s = roll(s, 59);
+            *p = -1;
+        } else {
+            if (seg == 0) {
+                if (digit > 2) {
+                    h = std::min(23, digit);
+                    *p = -1;
+                } else {
+                    snapshot_sec_ = sec;
+                    h = digit;
+                    *p = 0;
+                }
+            } else if (seg == 1) {
+                if (digit > 5) {
+                    m = std::min(59, digit);
+                    *p = -1;
+                } else {
+                    snapshot_sec_ = sec;
+                    m = digit;
+                    *p = 0;
+                }
+            } else if (seg == 2) {
+                if (digit > 5) {
+                    s = std::min(59, digit);
+                    *p = -1;
+                } else {
+                    snapshot_sec_ = sec;
+                    s = digit;
+                    *p = 0;
+                }
+            } else {
+                return;
+            }
+        }
+        sec = h * 3600 + m * 60 + s;
+        suppress_partial_clear_ = true;
+        get_adjustment()->set_value(static_cast<double>(sec));
+        update();
+        suppress_partial_clear_ = false;
+        select_region_for_segment(active_segment_);
+    }
+    void apply_backspace_segment() {
+        sync_active_segment_from_entry_state();
+        const int seg = active_segment_;
+        int sec = static_cast<int>(get_adjustment()->get_value());
+        int h = sec / 3600;
+        int m = (sec % 3600) / 60;
+        int s = sec % 60;
+        switch (seg) {
+        case 0:
+            h = 0;
+            break;
+        case 1:
+            m = 0;
+            break;
+        case 2:
+            s = 0;
+            break;
+        default:
+            return;
+        }
+        partial_.fill(-1);
+        sec = h * 3600 + m * 60 + s;
+        suppress_partial_clear_ = true;
+        get_adjustment()->set_value(static_cast<double>(sec));
+        update();
+        suppress_partial_clear_ = false;
+        select_region_for_segment(active_segment_);
+    }
+};
+</TEMPLATE_BODY>
+
+gtkmm3 sortable treeview
+TAGS: gtkmm3, class
+<TEMPLATE_BODY>
+#include <gtkmm.h>
+#include <optional>
+
+class SortableTreeView : public Gtk::TreeView {
+    public:
+        SortableTreeView() {
+            model_property_conn_ =
+                property_model().signal_changed().connect(
+                    [this]() { on_tree_model_changed(); });
+        }
+
+        ~SortableTreeView() override {
+            model_property_conn_.disconnect();
+            for (auto &reg : sort_columns_)
+                reg.clicked_conn.disconnect();
+            sort_columns_.clear();
+        }
+
+        void register_sortable_column(
+            Gtk::TreeViewColumn &column, int sort_model_column_id,
+            const Glib::ustring &column_title = {}) {
+            const int idx = column_view_index(*this, column);
+            if (idx < 0)
+                return;
+
+            auto it = std::find_if(
+                sort_columns_.begin(), sort_columns_.end(),
+                [idx](const SortColumnReg &r) {
+                    return r.tree_column_index == idx;
+                });
+            if (it != sort_columns_.end()) {
+                it->clicked_conn.disconnect();
+                sort_columns_.erase(it);
+            }
+
+            SortColumnReg reg;
+            reg.tree_column_index = idx;
+            reg.model_column = sort_model_column_id;
+            if (!column_title.empty())
+                column.set_title(column_title);
+            column.set_clickable(true);
+            column.set_sort_column(-1);
+            column.set_sort_indicator(false);
+
+            reg.clicked_conn = column.signal_clicked().connect(sigc::bind(
+                sigc::mem_fun(*this, &SortableTreeView::on_column_clicked),
+                &column, sort_model_column_id));
+            sort_columns_.push_back(std::move(reg));
+        }
+
+        void clear_sort_state() {
+            if (auto sortable = resolve_sortable(get_model())) {
+                sortable->set_sort_column(
+                    Gtk::TreeSortable::DEFAULT_UNSORTED_COLUMN_ID,
+                    Gtk::SORT_ASCENDING);
+            }
+            active_sort_model_column_.reset();
+            active_phase_.reset();
+            refresh_sort_indicators();
+        }
+
+    protected:
+        int column_view_index(
+            const Gtk::TreeView &view, const Gtk::TreeViewColumn &column) {
+            const int n = view.get_n_columns();
+            for (int i = 0; i < n; ++i) {
+                if (view.get_column(i) == &column)
+                    return i;
+            }
+            return -1;
+        }
+
+        Glib::RefPtr<Gtk::TreeSortable> resolve_sortable(
+            const Glib::RefPtr<Gtk::TreeModel> &model) {
+            if (!model)
+                return {};
+            if (auto direct =
+                    Glib::RefPtr<Gtk::TreeSortable>::cast_dynamic(model))
+                return direct;
+            if (auto filter =
+                    Glib::RefPtr<Gtk::TreeModelFilter>::cast_dynamic(model)) {
+                return Glib::RefPtr<Gtk::TreeSortable>::cast_dynamic(
+                    filter->get_model());
+            }
+            return {};
+        }
+
+        void on_tree_model_changed() { clear_sort_state(); }
+
+        void on_column_clicked(Gtk::TreeViewColumn *column,
+                                                        int model_column) {
+            (void)column;
+            auto sortable = resolve_sortable(get_model());
+            if (!sortable)
+                return;
+
+            if (active_sort_model_column_ &&
+                *active_sort_model_column_ == model_column) {
+                if (active_phase_ == SortPhase::Ascending)
+                    active_phase_ = SortPhase::Descending;
+                else if (active_phase_ == SortPhase::Descending) {
+                    active_sort_model_column_.reset();
+                    active_phase_.reset();
+                    sortable->set_sort_column(
+                        Gtk::TreeSortable::DEFAULT_UNSORTED_COLUMN_ID,
+                        Gtk::SORT_ASCENDING);
+                    refresh_sort_indicators();
+                    return;
+                }
+            } else {
+                active_sort_model_column_ = model_column;
+                active_phase_ = SortPhase::Ascending;
+            }
+
+            apply_sort();
+            refresh_sort_indicators();
+        }
+
+        void apply_sort() {
+            auto sortable = resolve_sortable(get_model());
+            if (!sortable || !active_sort_model_column_ || !active_phase_)
+                return;
+            const Gtk::SortType order = *active_phase_ == SortPhase::Ascending
+                                            ? Gtk::SORT_ASCENDING
+                                            : Gtk::SORT_DESCENDING;
+            sortable->set_sort_column(*active_sort_model_column_, order);
+        }
+
+        void refresh_sort_indicators() {
+            const int n = get_n_columns();
+            for (const auto &reg : sort_columns_) {
+                if (reg.tree_column_index < 0 || reg.tree_column_index >= n)
+                    continue;
+                Gtk::TreeViewColumn *col = get_column(reg.tree_column_index);
+                if (!col)
+                    continue;
+                col->set_sort_indicator(false);
+            }
+            if (!active_sort_model_column_ || !active_phase_)
+                return;
+            auto it = std::find_if(
+                sort_columns_.begin(), sort_columns_.end(),
+                [this](const SortColumnReg &r) {
+                    return r.model_column == *active_sort_model_column_;
+                });
+            if (it == sort_columns_.end() || it->tree_column_index < 0 ||
+                it->tree_column_index >= n)
+                return;
+            Gtk::TreeViewColumn *active = get_column(it->tree_column_index);
+            if (!active)
+                return;
+            active->set_sort_indicator(true);
+            active->set_sort_order(*active_phase_ == SortPhase::Ascending
+                                      ? Gtk::SORT_ASCENDING
+                                      : Gtk::SORT_DESCENDING);
+        }
+
+    private:
+        enum class SortPhase { Ascending, Descending };
+
+        struct SortColumnReg {
+                int tree_column_index = -1;
+                int model_column = -1;
+                sigc::connection clicked_conn;
+        };
+
+        std::vector<SortColumnReg> sort_columns_;
+        std::optional<int> active_sort_model_column_;
+        std::optional<SortPhase> active_phase_;
+        sigc::connection model_property_conn_;
+};
+</TEMPLATE_BODY>
+
+Gtkmm3 show_copyable_message/dialog with CopyableNotice for delivering from outer files
+TAGS: gtkmm3, code
+VARS: XCHECKBOX; use_copyable_notice, XVARIANT:message-dialog-both; mode
+<TEMPLATE_BODY>
+##IF_ON use_copyable_notice
+struct CopyableNotice {
+    enum class Level { None, Info, Warning, Error };
+    Level level = Level::None;
+    std::string text;
+    std::string detail;
+
+    bool empty() const {
+        return level == Level::None || text.empty();
+    }
+    static CopyableNotice none() { return {}; }
+    static CopyableNotice info(std::string t) {
+        return {Level::Info, std::move(t), {}};
+    }
+    static CopyableNotice warning(std::string t, std::string d = "") {
+        return {Level::Warning, std::move(t), std::move(d)};
+    }
+    static CopyableNotice error(std::string t, std::string d = {}) {
+        return {Level::Error, std::move(t), std::move(d)};
+    }
+};
+void show_copyable_notice(const CopyableNotice &notice) {
+    if (notice.empty())
+        return;
+    Gtk::MessageType type = Gtk::MESSAGE_INFO;
+    switch (notice.level) {
+    case CopyableNotice::Level::Warning:
+        type = Gtk::MESSAGE_WARNING;
+        break;
+    case CopyableNotice::Level::Error:
+        type = Gtk::MESSAGE_ERROR;
+        break;
+    case CopyableNotice::Level::Info:
+    case CopyableNotice::Level::None:
+        type = Gtk::MESSAGE_INFO;
+        break;
+    }
+    show_copyable_message(type, notice.text, notice.detail);
+}
+##END
+void install_message_area_copy(Gtk::MessageDialog &dlg,
+                               const Glib::ustring &copy_text) {
+    Gtk::Box *area = dlg.get_message_area();
+    if (!area)
+        return;
+    std::vector<Gtk::Widget *> pending = area->get_children();
+    while (!pending.empty()) {
+        Gtk::Widget *w = pending.back();
+        pending.pop_back();
+        if (auto *label = dynamic_cast<Gtk::Label *>(w)) {
+            label->set_selectable(true);
+            label->set_can_focus(true);
+            continue;
+        }
+        if (auto *box = dynamic_cast<Gtk::Box *>(w)) {
+            const auto kids = box->get_children();
+            pending.insert(pending.end(), kids.begin(), kids.end());
+        }
+    }
+
+    auto *copy_btn = Gtk::make_managed<Gtk::Button>();
+    copy_btn->set_relief(Gtk::RELIEF_NONE);
+    copy_btn->set_focus_on_click(false);
+    copy_btn->set_tooltip_text("Скопировать текст в буфер");
+    auto *img = Gtk::make_managed<Gtk::Image>();
+    img->set_from_icon_name("edit-copy", Gtk::ICON_SIZE_BUTTON);
+    copy_btn->add(*img);
+    auto *corner_box = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL);
+    corner_box->set_halign(Gtk::ALIGN_CENTER);
+    corner_box->pack_end(*copy_btn, false, false, 0);
+    copy_btn->signal_clicked().connect([copy_text]() {
+        if (const Glib::RefPtr<Gtk::Clipboard> cb =
+                Gtk::Clipboard::get(GDK_SELECTION_CLIPBOARD))
+            cb->set_text(copy_text);
+    });
+    area->pack_start(*corner_box, false, false, 0);
+    area->reorder_child(*corner_box, 0);
+    area->show_all();
+}
+##IF_EQ mode "message"
+void show_copyable_message(
+    Gtk::MessageType type, const Glib::ustring &text,
+    const Glib::ustring &copyable_subtext) {
+    Gtk::MessageDialog dlg(*this, text, false, type, Gtk::BUTTONS_OK, true);
+    dlg.set_title("Настройка БД ТП");
+    if (!copyable_subtext.empty())
+        dlg.set_secondary_text(copyable_subtext);
+    install_message_area_copy(dlg, copyable_subtext.empty() ? text
+                                                            : copyable_subtext);
+    dlg.run();
+}
+##ELIF_EQ mode "dialog"
+bool show_copyable_dialog(
+    Gtk::MessageType type, const Glib::ustring &text,
+    const Glib::ustring &copyable_subtext) {
+    Gtk::MessageDialog dlg(*this, text, false, type, Gtk::BUTTONS_NONE, true);
+    dlg.set_title("Настройка БД ТП");
+    if (!copyable_subtext.empty())
+        dlg.set_secondary_text(copyable_subtext);
+    dlg.add_button("_OK", Gtk::RESPONSE_OK);
+    dlg.add_button("_Отмена", Gtk::RESPONSE_CANCEL);
+    dlg.set_default_response(Gtk::RESPONSE_CANCEL);
+    install_message_area_copy(dlg, copyable_subtext.empty() ? text
+                                                            : copyable_subtext);
+    return dlg.run() == Gtk::RESPONSE_OK;
+}
+##ELIF_EQ mode "both"
+void show_copyable_message(
+    Gtk::MessageType type, const Glib::ustring &text,
+    const Glib::ustring &copyable_subtext) {
+    Gtk::MessageDialog dlg(*this, text, false, type, Gtk::BUTTONS_OK, true);
+    dlg.set_title("Настройка БД ТП");
+    if (!copyable_subtext.empty())
+        dlg.set_secondary_text(copyable_subtext);
+    install_message_area_copy(dlg, copyable_subtext.empty() ? text
+                                                            : copyable_subtext);
+    dlg.run();
+}
+bool show_copyable_dialog(
+    Gtk::MessageType type, const Glib::ustring &text,
+    const Glib::ustring &copyable_subtext) {
+    Gtk::MessageDialog dlg(*this, text, false, type, Gtk::BUTTONS_NONE, true);
+    dlg.set_title("Настройка БД ТП");
+    if (!copyable_subtext.empty())
+        dlg.set_secondary_text(copyable_subtext);
+    dlg.add_button("_OK", Gtk::RESPONSE_OK);
+    dlg.add_button("_Отмена", Gtk::RESPONSE_CANCEL);
+    dlg.set_default_response(Gtk::RESPONSE_CANCEL);
+    install_message_area_copy(dlg, copyable_subtext.empty() ? text
+                                                            : copyable_subtext);
+    return dlg.run() == Gtk::RESPONSE_OK;
+}
+##END

@@ -1,0 +1,12 @@
+key "Alt+t" xterm
+key "Alt+b" firefox
+key "Alt+m" rofi -show drun
+key "Alt+q" flameshot gui
+key "Alt+p" ~/Own/xtemplate/xtemplate
+
+key "XF86AudioLowerVolume"  amixer sset Master 5%-
+key "XF86AudioRaiseVolume"  amixer sset Master 5%+
+key "XF86AudioMute"         amixer sset Master toggle
+key "XF86HomePage"          xdg-open about:blank
+key "XF86Search"            xdg-open https://www.google.com
+key "XF86Eject"             eject
