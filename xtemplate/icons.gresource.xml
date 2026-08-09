@@ -1,0 +1,17 @@
+<gresources>
+  <gresource prefix="/org">
+    <file>icons/select-xtemplates-file.png</file>
+    <file>icons/open-xtemplate.png</file>
+    <file>icons/new-xtemplate.png</file>
+    <file>icons/delete-xtemplate.png</file>
+    <file>icons/display-hardcoded-xtemplates.png</file>
+    <file>icons/display-hardcoded-xtemplates-disabled.png</file>
+    <file>icons/clear-filtering.png</file>
+    <file>icons/new-variable.png</file>
+    <file>icons/variable.png</file>
+    <file>icons/xcheckbox-variable.png</file>
+    <file>icons/xvariant-variable.png</file>
+    <file>icons/plaintext-variable.png</file>
+    <file>icons/delete.png</file>
+  </gresource>
+</gresources>

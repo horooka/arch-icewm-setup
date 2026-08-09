@@ -1,0 +1,534 @@
+cp1251 to utf8
+TAGS: decode, funcs
+<TEMPLATE_BODY>
+int cp1251_to_utf8(char *out, const char *in, int buflen) {
+    static const int table[128] = {
+        0x82D0,   0x83D0,   0x9A80E2, 0x93D1,   0x9E80E2, 0xA680E2, 0xA080E2,
+        0xA180E2, 0xAC82E2, 0xB080E2, 0x89D0,   0xB980E2, 0x8AD0,   0x8CD0,
+        0x8BD0,   0x8FD0,   0x92D1,   0x9880E2, 0x9980E2, 0x9C80E2, 0x9D80E2,
+        0xA280E2, 0x9380E2, 0x9480E2, 0,        0xA284E2, 0x99D1,   0xBA80E2,
+        0x9AD1,   0x9CD1,   0x9BD1,   0x9FD1,   0xA0C2,   0x8ED0,   0x9ED1,
+        0x88D0,   0xA4C2,   0x90D2,   0xA6C2,   0xA7C2,   0x81D0,   0xA9C2,
+        0x84D0,   0xABC2,   0xACC2,   0xADC2,   0xAEC2,   0x87D0,   0xB0C2,
+        0xB1C2,   0x86D0,   0x96D1,   0x91D2,   0xB5C2,   0xB6C2,   0xB7C2,
+        0x91D1,   0x9684E2, 0x94D1,   0xBBC2,   0x98D1,   0x85D0,   0x95D1,
+        0x97D1,   0x90D0,   0x91D0,   0x92D0,   0x93D0,   0x94D0,   0x95D0,
+        0x96D0,   0x97D0,   0x98D0,   0x99D0,   0x9AD0,   0x9BD0,   0x9CD0,
+        0x9DD0,   0x9ED0,   0x9FD0,   0xA0D0,   0xA1D0,   0xA2D0,   0xA3D0,
+        0xA4D0,   0xA5D0,   0xA6D0,   0xA7D0,   0xA8D0,   0xA9D0,   0xAAD0,
+        0xABD0,   0xACD0,   0xADD0,   0xAED0,   0xAFD0,   0xB0D0,   0xB1D0,
+        0xB2D0,   0xB3D0,   0xB4D0,   0xB5D0,   0xB6D0,   0xB7D0,   0xB8D0,
+        0xB9D0,   0xBAD0,   0xBBD0,   0xBCD0,   0xBDD0,   0xBED0,   0xBFD0,
+        0x80D1,   0x81D1,   0x82D1,   0x83D1,   0x84D1,   0x85D1,   0x86D1,
+        0x87D1,   0x88D1,   0x89D1,   0x8AD1,   0x8BD1,   0x8CD1,   0x8DD1,
+        0x8ED1,   0x8FD1};
+
+    char *pout = out;
+    for (; *in && ((out - pout) < buflen - 1);) {
+        if (*in & 0x80) {
+            int v = table[(int)(0x7f & *in++)];
+            if (!v)
+                continue;
+            *out++ = (char)v;
+            *out++ = (char)(v >> 8);
+            if (v >>= 16)
+                *out++ = (char)v;
+        } else {
+            *out++ = *in++;
+        }
+    }
+    *out = 0;
+    return (out - pout);
+}
+
+void cp1251_to_utf8(const std::string &s, std::string &out) {
+
+    out.resize(s.length() * 2);
+
+    int sz = cp1251_to_utf8(out.data(), s.c_str(), out.length());
+
+    out.resize(sz);
+}
+
+std::string cp1251_to_utf8(const std::string &s) {
+    std::string out;
+    cp1251_to_utf8(s, out);
+    return out;
+}
+</TEMPLATE_BODY>
+
+tinyxml2 read-write
+TAGS: tinyxml2, read-write, code
+VARS: const std::string&; filepath, std::string&; errors, XVARIANT:read-write; mode, XCHECKBOX=mode(read); use_read_file_ate, XCHECKBOX=mode(read); decode_from_win1251
+<TEMPLATE_BODY>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
+#include <string>
+
+##IF_EQ mode read
+  ##IF_ON use_read_file_ate
+int read_file_ate(const std::string &path, std::string &out) {
+    errno = 0;
+    std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+    const int open_err = errno;
+    if (!ifs.is_open())
+        return open_err != 0 ? open_err : ENOENT;
+    errno = 0;
+    const std::streamsize sz = ifs.tellg();
+    if (sz < 0)
+        return errno != 0 ? errno : EIO;
+    ifs.seekg(0, std::ios::beg);
+    out.resize(static_cast<std::size_t>(sz));
+    if (sz > 0 && !ifs.read(out.data(), sz)) {
+        out.clear();
+        return errno != 0 ? errno : EIO;
+    }
+    return 0;
+}
+  ##END
+/*bool GetChildBool(tinyxml2::XMLElement *parent, const std::string &child_name) {
+    if (!parent)
+        return false;
+    tinyxml2::XMLElement *child = parent->FirstChildElement(child_name.c_str());
+    if (!child)
+        return false;
+    const char *text = child->GetText();
+    if (!text)
+        return false;
+    return text == std::string("true") || text == std::string("1");
+}
+int GetChildInt(tinyxml2::XMLElement *parent, const std::string &child_name) {
+    if (!parent)
+        return 0;
+    tinyxml2::XMLElement *child = parent->FirstChildElement(child_name.c_str());
+    if (!child)
+        return 0;
+    const char *text = child->GetText();
+    if (!text)
+        return 0;
+    return std::stoi(text);
+}
+Glib::ustring GetChildText(tinyxml2::XMLElement *parent,
+                           const std::string &child_name) {
+    if (!parent)
+        return "";
+    tinyxml2::XMLElement *child = parent->FirstChildElement(child_name.c_str());
+    if (!child)
+        return "";
+    const char *text = child->GetText();
+    if (!text)
+        return "";
+    return Glib::ustring(text);
+}*/
+##END
+##IF_EQ mode read
+int tinyxml2_read(std::string &filepath, std::string &errors) {
+##ELIF_EQ mode write
+int tinyxml2_write(std::string &filepath, std::string &errors) {
+##ELSE
+int tinyxml2_read_write(std::string &filepath, std::string &errors) {
+##END
+##IF_EQ mode write
+    // WRITE dir and perm check
+    std::filesystem::path config_p(filepath.c_str());
+    if (!std::filesystem::exists(config_p.parent_path())) {
+        std::error_code ec;
+        std::filesystem::create_directory(config_p.parent_path(), ec);
+        if (ec) {
+            errors += "- " + ec.message() + "\n";
+            return ec.value();
+        }
+    }
+    errno = 0;
+    std::ofstream ofs(filepath);
+    int err = errno;
+    if (!ofs.is_open() || err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+##END
+##IF_EQ mode read
+  ##IF_ON decode_from_win1251
+    // READ win1251 to utf8 option
+    ##IF_ON use_read_file_ate
+    std::string raw_data;
+    if (const int err = read_file_ate(filepath, raw_data); err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    ##ELSE
+    errno = 0;
+    std::ifstream ifs(filepath, std::ios::binary);
+    int err = errno;
+    if (!ifs.is_open() || err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    std::vector<char> buffer((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+    ifs.close();
+    std::string raw_data(buffer.data(), buffer.size());
+    ##END
+    std::string utf8_data;
+    if (g_utf8_validate(raw_data.c_str(), static_cast<gssize>(raw_data.size()),
+                        nullptr)) {
+        utf8_data = raw_data;
+    } else {
+        utf8_data = cp1251_to_utf8(raw_data);
+    }
+    tinyxml2::XMLDocument config;
+    tinyxml2::XMLError result =
+        config.Parse(utf8_data.c_str(), utf8_data.size());
+    if (result != tinyxml2::XML_SUCCESS) {
+        errors += std::string("- ") + config.ErrorStr() + "\n";
+        return result;
+    }
+  ##END
+    tinyxml2::XMLDocument config;
+    tinyxml2::XMLError result = config.LoadFile(filepath.c_str());
+    if (result != tinyxml2::XML_SUCCESS) {
+        errors += std::string("- ") + config.ErrorStr() + "\n";
+        return result;
+    }
+    /*tinyxml2::XMLElement *root_elem = config.FirstChildElement("Root");
+    for (tinyxml2::XMLElement *table = root_elem->FirstChildElement("Table");
+        table != nullptr; table = table->NextSiblingElement("Table")) {
+        std::string name = GetChildText(table, "Name");
+    }*/
+    return 0;
+##ELIF_EQ mode write
+    tinyxml2::XMLDocument config;
+    auto append_element = [&config](tinyxml2::XMLElement *parent,
+                                    const char *name) {
+        tinyxml2::XMLElement *node = config.NewElement(name);
+        parent->InsertEndChild(node);
+        return node;
+    };
+    auto append_val_element = [&config](tinyxml2::XMLElement *parent,
+                                        const std::string &name, const std::string &val) {
+        tinyxml2::XMLElement *node = config.NewElement(name.c_str());
+        node->SetText(val.c_str());
+        parent->InsertEndChild(node);
+        return node;
+    };
+    // tinxyml2::XMLElement *root_elem = config.NewElement("Root");
+    // config.InsertFirstChild(root_elem);
+    tinyxml2::XMLError save_res = config.SaveFile(filepath.c_str());
+    if (save_res != tinyxml2::XML_SUCCESS) {
+        errors += std::string("- ") + config.ErrorStr() + "\n";
+        return save_res;
+    }
+    int ret = config.ErrorID();
+    if (ret != tinyxml2::XML_SUCCESS) {
+        errors += std::string("- ") + config.ErrorStr() + "\n";
+        return ret;
+    }
+    return ret;
+##END
+}
+</TEMPLATE_BODY>
+
+tinyjson read-write
+TAGS: tinyjson, read-write, code
+VARS: const std::string&; filepath, std::string&; errors, XVARIANT:read-write; mode, XCHECKBOX; use_read_file_ate, XCHECKBOX; decode_from_win1251
+<TEMPLATE_BODY>
+#include "tinyjson/tinyjson.h"
+#include <cerrno>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <glib.h>
+#include <memory>
+#include <string>
+
+##IF_EQ mode read
+  ##IF_ON use_read_file_ate
+int read_file_ate(const std::string &path, std::string &out) {
+    errno = 0;
+    std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+    const int open_err = errno;
+    if (!ifs.is_open())
+        return open_err != 0 ? open_err : ENOENT;
+    errno = 0;
+    const std::streamsize sz = ifs.tellg();
+    if (sz < 0)
+        return errno != 0 ? errno : EIO;
+    ifs.seekg(0, std::ios::beg);
+    out.resize(static_cast<std::size_t>(sz));
+    if (sz > 0 && !ifs.read(out.data(), sz)) {
+        out.clear();
+        return errno != 0 ? errno : EIO;
+    }
+    return 0;
+}
+  ##END
+/*TinyJSON::TJValueArray *try_get_array(TinyJSON::TJValueObject *obj,
+                                      const std::string &key) {
+    const TinyJSON::TJValue *val = obj->try_get_value(key.c_str());
+    return (val && val->is_array()) ? dynamic_cast<TinyJSON::TJValueArray *>(const_cast<TinyJSON::TJValue *>(val)) : nullptr;
+}
+std::string try_get_string(TinyJSON::TJValueObject *obj, const std::string &key,
+                           const std::string &def = "") {
+    const char *cstr = obj->try_get_string(key.c_str());
+    return cstr ? std::string(cstr) : def;
+}*/
+##END
+##IF_EQ mode read
+int tinyjson_read(std::string &$1, std::string &$2) {
+##ELIF_EQ mode write
+int tinyjson_write(std::string &$1, std::string &$2) {
+##ELSE
+int tinyjson_read_write(std::string &$1, std::string &$2) {
+##END
+##IF_EQ mode write
+    // WRITE dir and perm check
+    std::filesystem::path config_p($1.c_str());
+    if (!std::filesystem::exists(config_p.parent_path())) {
+        std::error_code ec;
+        std::filesystem::create_directories(config_p.parent_path(), ec);
+        if (ec) {
+            $2 += std::string("- ") + ec.message() + "\n";
+            return ec.value();
+        }
+    }
+    errno = 0;
+    std::ofstream ofs(filepath);
+    int err = errno;
+    if (!ofs.is_open() || err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+##END
+##IF_EQ mode read
+  ##IF_ON decode_from_win1251
+    // READ win1251 to utf8 option
+    ##IF_ON use_read_file_ate
+    std::string raw_data;
+    if (const int err = read_file_ate($1, raw_data); err != 0) {
+        $2 += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    ##ELSE 
+    errno = 0;
+    std::ifstream ifs(filepath, std::ios::binary);
+    int err = errno;
+    if (!ifs.is_open() || err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    std::vector<char> buffer((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+    ifs.close();
+    std::string raw_data(buffer.data(), buffer.size());
+    ##END
+    std::string utf8_data;
+    if (g_utf8_validate(raw_data.c_str(), static_cast<gssize>(raw_data.size()),
+                        nullptr)) {
+        utf8_data = raw_data;
+    } else {
+        utf8_data = cp1251_to_utf8(raw_data);
+    }
+  ##END
+    TinyJSON::parse_options popts{};
+    popts.throw_exception = true;
+    std::unique_ptr<TinyJSON::TJValue> root;
+    try {
+        root.reset(TinyJSON::TJ::parse(utf8_data.c_str(), popts));
+    } catch (const TinyJSON::TJParseException &ex) {
+        $2 += std::string("- ") + ex.what() + "\n";
+        return -1;
+    }
+    TinyJSON::parse_options popts{};
+    popts.throw_exception = true;
+    std::unique_ptr<TinyJSON::TJValue> root;
+    try {
+        root.reset(TinyJSON::TJ::parse_file(filepath, popts));
+    } catch (const TinyJSON::TJParseException &ex) {
+        $2 += std::string("- ") + ex.what() + "\n";
+        return -1;
+    }
+    if (!root) {
+        $2 += "- TinyJSON::TJ::parse returned null.\n";
+        return -1;
+    }
+    // TinyJSON::TJValueObject* root_obj = dynamic_cast<TinyJSON::TJValueObject*>(root.get());
+    // TinyJSON::TJValueObject* child_obj = obj->try_get_object(key);
+    // T val = obj->get_or<T>(key, def_val) for bool, int, float
+    /* size_t count = arr->get_number_of_items();
+    for (size_t i = 0; i < count; ++i) {
+        TinyJSON::TJValue* item = arr->at(i);
+    } */
+##ELIF_EQ mode write
+    TinyJSON::write_options wopts{};
+    wopts.throw_exception = true;
+    wopts.write_formating = TinyJSON::formating::indented;
+    wopts.byte_order_mark = TinyJSON::write_options::byte_order_mark::none;
+    std::unique_ptr<TinyJSON::TJValueObject> out(new TinyJSON::TJValueObject());
+    //out->set_string("example_str", "value");
+    try {
+        (void)TinyJSON::TJ::write_file($1.c_str(), *out, wopts);
+    } catch (const TinyJSON::TJWriteException &ex) {
+        $2 += std::string("- ") + ex.what() + "\n";
+        return -3;
+    }
+##END
+    return 0;
+}
+</TEMPLATE_BODY>
+
+glibkeyfile read-write
+TAGS: glib, read-write, code
+VARS: const std::string&; filepath, std::string&; errors, XVARIANT:read-write; mode, XCHECKBOX; use_read_file_ate, XCHECKBOX; decode_from_win1251
+<TEMPLATE_BODY>
+#include <cerrno>
+#include <cstring>
+#include <fstream>
+#include <string>
+
+##IF_EQ mode read
+  ##IF_ON use_read_file_ate
+int read_file_ate(const std::string &path, std::string &out) {
+    errno = 0;
+    std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+    const int open_err = errno;
+    if (!ifs.is_open())
+        return open_err != 0 ? open_err : ENOENT;
+    errno = 0;
+    const std::streamsize sz = ifs.tellg();
+    if (sz < 0)
+        return errno != 0 ? errno : EIO;
+    ifs.seekg(0, std::ios::beg);
+    out.resize(static_cast<std::size_t>(sz));
+    if (sz > 0 && !ifs.read(out.data(), sz)) {
+        out.clear();
+        return errno != 0 ? errno : EIO;
+    }
+    return 0;
+}
+  ##END
+##END
+##IF_EQ mode read
+int glibkeyfile_read(std::string &$1, std::string &$2) {
+##ELIF_EQ mode write
+int glibkeyfile_write(std::string &$1, std::string &$2) {
+##ELSE
+int glibkeyfile_read_write(std::string &$1, std::string &$2) {
+##END
+##IF_EQ mode write
+    // WRITE dir and perm check
+    std::filesystem::path config_p($1.c_str());
+    if (!std::filesystem::exists(config_p.parent_path())) {
+        std::error_code ec;
+        std::filesystem::create_directory(config_p.parent_path(), ec);
+        if (ec) {
+            $2 += std::string("- ") + ec.message() + "\n";
+            return ec.value();
+        }
+    }
+    Glib::KeyFile key_file;
+    try {
+        key_file.save_to_file($1);
+    } catch (const Glib::FileError &ex) {
+        $2 += "- " +  ex.what() + "\n";
+        return ex.code();
+    }
+##END
+##IF_EQ mode read
+  ##IF_ON decode_from_win1251
+    // READ win1251 to utf8 option
+    ##IF_ON use_read_file_ate
+    /*std::string raw_data;
+    if (const int err = read_file_ate($1, raw_data); err != 0) {
+        $2 += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    ##ELSE
+    errno = 0;
+    std::ifstream ifs(filepath, std::ios::binary);
+    int err = errno;
+    if (!ifs.is_open() || err != 0) {
+        errors += std::string("- ") + strerror(err) + "\n";
+        return err;
+    }
+    std::vector<char> buffer((std::istreambuf_iterator<char>(ifs)),
+                             std::istreambuf_iterator<char>());
+    ifs.close();
+    std::string raw_data(buffer.data(), buffer.size());
+    ##END
+    std::string utf8_data;
+    if (g_utf8_validate(raw_data.c_str(), static_cast<gssize>(raw_data.size()),
+                        nullptr)) {
+        utf8_data = raw_data;
+    } else {
+        utf8_data = cp1251_to_utf8(raw_data);
+    }
+  ##END
+    Glib::KeyFile key_file;
+    try {
+        key_file.load_from_data(utf8_data);
+    } catch (const Glib::FileError &ex) {
+        $2 += "- " + ex.what() + "\n";
+        return ex.code();
+    }*/
+    Glib::KeyFile key_file;
+    try {
+        key_file.load_from_file($1);
+    } catch (const Glib::FileError &ex) {
+        $2 += "- " + ex.what() + "\n";
+        return ex.code();
+    }
+    auto get_int_or = [&](const std::string &group_name, const std::string &key,
+                          int default_val) {
+        try {
+            if (!key_file.has_key(group_name, key))
+                return default_val;
+            std::string val_str = key_file.get_string(group_name, key);
+            size_t pos = 0;
+            int val = std::stoi(val_str, &pos);
+            if (pos != val_str.size())
+                throw std::invalid_argument("extra chars");
+            return val;
+        } catch (...) {
+            return default_val;
+        }
+    };
+    auto get_str_or = [&](const std::string &group_name, const std::string &key,
+                          const std::string &default_val) {
+        try {
+            if (!key_file.has_key(group_name, key))
+                return default_val;
+            return key_file.get_string(group_name, key).raw();
+        } catch (...) {
+            return default_val;
+        }
+    };
+    auto get_bool_or = [&](const std::string &group_name,
+                           const std::string &key, const bool default_val) {
+        try {
+            if (!key_file.has_key(group_name, key))
+                return default_val;
+            std::string val_str = key_file.get_string(group_name, key);
+            return val_str == "true" || val_str == "1";
+        } catch (...) {
+            return default_val;
+        }
+    };
+    try {
+        // std::string key_var = key_file.get_string("group_name", "key_name");
+    } catch (const Glib::KeyFileError &ex) {
+        $2 += "- " + ex.what() + "\n";
+    }
+##ELIF_EQ mode write
+    try {
+        // key_file.set_integer("group_name", "key_name", key_val);
+        // key_file.set_string(...);
+        key_file.save_to_file($1);
+    } catch (const Glib::FileError &ex) {
+        $2 += "- " +  ex.what() + "\n";
+        return ex.code();
+    }
+##END
+    return 0;
+}
+</TEMPLATE_BODY>
