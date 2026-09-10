@@ -15,19 +15,16 @@ void trim(std::string &str) {
     str.erase(0, str.find_first_not_of(" \t\n\r\f\v"));
 }
 
-bool find_dest(const std::vector<DestGroup> &dests_groups,
-               const std::string &dest_name, Dest &dest) {
-    for (const auto &dest_group : dests_groups) {
-        const auto &dests = dest_group.dests;
-        if (const auto dest_it = std::find_if(dests.begin(), dests.end(),
-                                              [&dest_name](const Dest &dest) {
-                                                  return dest.dest_name ==
-                                                         dest_name;
-                                              });
-            dest_it != dests.end()) {
-            dest = *dest_it;
-            return true;
-        }
+bool find_dest(const std::vector<Dest> &dests, const std::string &dest_name,
+               Dest &dest_out) {
+    if (const auto dest_it = std::find_if(dests.begin(), dests.end(),
+                                          [&dest_name](const Dest &dest) {
+                                              return dest.dest_name ==
+                                                     dest_name;
+                                          });
+        dest_it != dests.end()) {
+        dest_out = *dest_it;
+        return true;
     }
     return false;
 }
@@ -72,18 +69,19 @@ unsigned char go(const Dest &dest, std::string &field_out,
     return 1;
 }
 
-void append_destgroup_note(const DestGroup *dest_group, std::string &output,
+void append_destgroup_note(const DestGroup *dest_group,
+                           const std::vector<Dest> &dests, std::string &output,
                            const std::array<std::string, 4> &fields_priority) {
     unsigned char group_len = dest_group->name.size();
     std::string group_border(group_len, '=');
     output += group_border + "\n";
     output += dest_group->name + "\n";
     output += group_border + "\n";
-    std::vector<Dest> dests = dest_group->dests;
-    if (dests.empty())
+    std::vector<uint16_t> dests_idxs = dest_group->dests_idxs;
+    if (dests_idxs.empty())
         return;
-    for (const auto &dest : dests) {
-        append_dest_note(&dest, output, true, fields_priority);
+    for (const auto &dest_idx : dests_idxs) {
+        append_dest_note(&dests[dest_idx], output, true, fields_priority);
     }
     output.pop_back();
     output.pop_back();
@@ -171,14 +169,14 @@ std::array<std::string, 4> split_by_comma(const std::string &str) {
     return fields;
 }
 
-void sort_by_priority(std::vector<Dest> &dests) {
-    std::stable_sort(
-        dests.begin(), dests.end(),
-        [](const Dest &a, const Dest &b) { return a.priority < b.priority; });
+void sort_by_priority(std::vector<uint16_t> &dests_idxs,
+                      const std::vector<Dest> &dests) {
+    std::stable_sort(dests_idxs.begin(), dests_idxs.end(),
+                     [dests](const uint16_t &a, const uint16_t &b) {
+                         return dests[a].priority > dests[b].priority;
+                     });
 }
 
-// Tag ids: 0=$P path, 1=$B brief note text, 2=$N note file, 3=$L priority,
-// 4=$F formatting.
 struct DestTag {
         unsigned char id;
         size_t pos;
@@ -314,7 +312,8 @@ static void load_displayed_lines(const std::string &brief,
 }
 
 int parse_navdict(const std::string &file_path,
-                  std::vector<DestGroup> &dests_groups, Settings &settings,
+                  std::vector<DestGroup> &dests_groups,
+                  std::vector<Dest> &dests, Settings &settings,
                   std::string &errors, const std::string &arg,
                   bool startup_only) {
     std::string output;
@@ -324,7 +323,7 @@ int parse_navdict(const std::string &file_path,
     std::string curr_group_name;
     DestGroup curr_group;
     unsigned char curr_formatting = 0;
-    std::vector<Dest> curr_dests = {};
+    std::vector<uint16_t> curr_dests_idxs = {};
     bool have_group = false;
     std::string line;
     while (std::getline(ss, line)) {
@@ -332,13 +331,13 @@ int parse_navdict(const std::string &file_path,
             continue;
         if (line[0] == '[') {
             if (have_group) {
-                sort_by_priority(curr_dests);
-                curr_group.dests = curr_dests;
+                sort_by_priority(curr_dests_idxs, dests);
+                curr_group.dests_idxs = curr_dests_idxs;
                 dests_groups.push_back(curr_group);
                 if (curr_group_name == arg)
                     return 0;
             }
-            curr_dests.clear();
+            curr_dests_idxs.clear();
             curr_group_name = line.substr(1, line.size() - 2);
             if (size_t comma_pos = curr_group_name.find(',');
                 comma_pos != std::string::npos) {
@@ -387,10 +386,10 @@ int parse_navdict(const std::string &file_path,
             have_group = false;
             continue;
         }
-        if (std::find_if(curr_dests.begin(), curr_dests.end(),
-                         [&dest](const auto &entry) {
-                             return entry.dest_name == dest;
-                         }) != curr_dests.end()) {
+        if (std::find_if(curr_dests_idxs.begin(), curr_dests_idxs.end(),
+                         [&dest, &dests](const auto &idx) {
+                             return dests[idx].dest_name == dest;
+                         }) != curr_dests_idxs.end()) {
             errors +=
                 "Duplicate dest: \"" + dest + "\" in " + curr_group_name + "\n";
             continue;
@@ -399,14 +398,21 @@ int parse_navdict(const std::string &file_path,
         load_displayed_lines(brief, note_path, displayed_lines, errors);
         const unsigned char formatting =
             curr_formatting != 0 ? curr_formatting : formatting_priority.first;
-        Dest destination = {
-            dest,      formatting, dest_path,       brief,
-            note_path, command,    displayed_lines, formatting_priority.second};
-        curr_dests.push_back(destination);
+        Dest destination = {dest,
+                            formatting,
+                            dest_path,
+                            brief,
+                            note_path,
+                            command,
+                            curr_group_name,
+                            displayed_lines,
+                            formatting_priority.second};
+        curr_dests_idxs.push_back(dests.size());
+        dests.push_back(destination);
     }
-    if (have_group || !curr_dests.empty()) {
-        sort_by_priority(curr_dests);
-        curr_group.dests = curr_dests;
+    if (have_group || !curr_dests_idxs.empty()) {
+        sort_by_priority(curr_dests_idxs, dests);
+        curr_group.dests_idxs = curr_dests_idxs;
         dests_groups.push_back(curr_group);
     }
     if (curr_group_name == arg)

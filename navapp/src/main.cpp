@@ -1,4 +1,5 @@
 #include "luigi.h"
+#include "stack_machine.h"
 #include <X11/keysym.h>
 #include <iostream>
 #include <nav.h>
@@ -11,6 +12,7 @@ Dest *note_dest_shown;
 UILabel *label_typed_dest;
 
 std::vector<DestGroup> dests_groups;
+std::vector<Dest> dests;
 Settings settings;
 std::string typed_dest = "Type dest: ";
 
@@ -33,7 +35,7 @@ int on_key_pressed(UIElement *element, UIMessage message, int di, void *dp) {
             typed_dest.pop_back();
     } else if (m->code == UI_KEYCODE_ENTER) {
         Dest dest;
-        bool found = find_dest(dests_groups, typed_dest.substr(11), dest);
+        bool found = find_dest(dests, typed_dest.substr(11), dest);
         if (!found)
             return 0;
         unsigned char on_click = settings.on_click;
@@ -53,7 +55,7 @@ int on_key_pressed(UIElement *element, UIMessage message, int di, void *dp) {
             typed_dest += code;
     }
     Dest dest;
-    bool found = find_dest(dests_groups, typed_dest.substr(11), dest);
+    bool found = find_dest(dests, typed_dest.substr(11), dest);
     if (found) {
         note_dest_shown = nullptr;
         std::string note;
@@ -74,7 +76,7 @@ int on_destgroup_triggered(UIElement *element, UIMessage message, int di,
         element->window->hovered == element) {
         note_dest_shown = nullptr;
         std::string note;
-        append_destgroup_note(destgroup, note, settings.fields_priority);
+        append_destgroup_note(destgroup, dests, note, settings.fields_priority);
         UICodeInsertContent(code_notes, note.c_str(), -1, true);
         return 0;
     }
@@ -104,20 +106,35 @@ int on_dest_triggered(UIElement *element, UIMessage message, int di, void *dp) {
     return 0;
 }
 
+void print_syntax_error(const char *query, const char *err, int symbol) {
+    printf("%s\n", query);
+    char *offset = (char *)malloc(symbol + 1);
+    memset(offset, ' ', symbol);
+    offset[symbol] = '\0';
+    // printf("%s^\n", offset);
+    // printf("%s%s at %d\n", offset, err, symbol);
+    printf("%s at %d\n", err, symbol);
+}
+
 int main(int argc, char **argv) {
     if (argc == 1) {
         std::cout
             << "Usage: navapp <command> <arg>\n\n"
                "Commands:\n"
-               "  list              lists dests in interactive "
+               "  list                lists dests in interactive "
                "mode\n"
-               "  list <group>      lists dests of the group in "
-               "interactive mode\n"
-               "  get <dest>        prints the path of the dest\n"
-               "  brief-get <dest>  prints the brief of the "
+               "  list <group>        lists dests of the group "
+               "in interactive mode\n"
+               "  list-filter <cond>  lists dests satisfying "
+               "condition in interactive mode\n"
+               "  get <dest>          prints the path of the dest\n"
+               "  get-filter <cond>   prints dest_name of the first"
+               "dest satisfying condition\n"
+               "  query <query>       allows to query the navdict into stdout\n"
+               "  brief-get <dest>    prints the brief of the "
                "dest\n"
-               "  note-get <dest>   prints the note of the dest\n"
-               "  get-startup       prints the startup command from config\n"
+               "  note-get <dest>     prints the note of the dest\n"
+               "  get-startup         prints the startup command from config\n"
             << std::endl;
         return 0;
     }
@@ -132,7 +149,12 @@ int main(int argc, char **argv) {
         return 1;
     }
     parse_navdict(std::string(home) + "/.config/navdict.ini", dests_groups,
-                  settings, errors, group_search, command == "get-startup");
+                  dests, settings, errors, group_search,
+                  command == "get-startup");
+    if (command == "list-filter" || command == "query") {
+        std::cout << "not implemented yet" << std::endl;
+        return 1;
+    }
     if (command != "list") {
         if (!errors.empty()) {
             std::cerr << "Parse errors:\n" << errors << std::endl;
@@ -151,8 +173,17 @@ int main(int argc, char **argv) {
             std::cerr << "Incorrect args count\n";
             return 1;
         }
+        if (command == "get-filter") {
+            const char *err = NULL;
+            int symbol = query(argv[2], &err, dests.data(), dests.size());
+            if (err) {
+                print_syntax_error(argv[2], err, symbol);
+                return 1;
+            }
+            return 0;
+        }
         Dest dest;
-        bool found = find_dest(dests_groups, argv[2], dest);
+        bool found = find_dest(dests, argv[2], dest);
         if (!found) {
             std::cerr << "Dest not found: " << argv[2] << std::endl;
             return 1;
@@ -210,13 +241,14 @@ int main(int argc, char **argv) {
         apply_label_formatting(group_label, formatting);
         group_label->e.messageUser = on_destgroup_triggered;
         group_label->e.cp = &dest_group;
-        for (Dest &dest : dest_group.dests) {
+        for (uint16_t dest_idx : dest_group.dests_idxs) {
+            Dest dest = dests[dest_idx];
             UILabel *dest_label = UILabelCreate(
                 &panel_dests->e, UI_ELEMENT_H_FILL,
                 (std::string("    -  ") + dest.dest_name).c_str(), -1);
             apply_label_formatting(dest_label, dest.formatting);
             dest_label->e.messageUser = on_dest_triggered;
-            dest_label->e.cp = &dest;
+            dest_label->e.cp = &dests[dest_idx];
         }
         if (errors.empty()) {
             UISpacerCreate(&panel_dests->e, 0, 0, 10);
