@@ -27,7 +27,6 @@ add_executable(xtemplate
   src/xtemplate.cpp
   src/utils.cpp
   src/nodes.cpp
-  src/block_canvas.cpp
   "${GENERATED_C}"
 )
 

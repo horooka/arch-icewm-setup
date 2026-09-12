@@ -1,5 +1,4 @@
 #include "xtemplate/xtemplate.hpp"
-#include "xtemplate/block_canvas.hpp"
 #include "xtemplate/nodes.hpp"
 #include "xtemplate/xtemplate_hardcoded.h"
 #include <gdkmm.h>
@@ -139,9 +138,11 @@ class XGtkmm3Template : public Gtk::Window {
             if (app_state == STATE_XTEMPLATE_OPENED) {
                 stack_main.set_visible_child(frame_xtemplates);
                 app_state = STATE_SEARCH;
+                hbox_bottom.set_visible(true);
                 return;
             }
             app_state = STATE_XTEMPLATE_OPENED;
+            hbox_bottom.set_visible(false);
 
             if (textview_xtemplate_result.get_parent())
                 textview_xtemplate_result.unparent();
@@ -462,257 +463,11 @@ class XGtkmm3Template : public Gtk::Window {
             stack_main.set_visible_child(vbox_xtemplate_form);
         }
 
-        void on_new_xtemplate_clicked() {
-            if (app_state == STATE_XTEMPLATE_CREATION) {
-                stack_main.set_visible_child(frame_xtemplates);
-                app_state = STATE_SEARCH;
-                return;
-            }
-            app_state = STATE_XTEMPLATE_CREATION;
-            for (Gtk::Widget *child : vbox_new_xtemplate_form.get_children()) {
-                vbox_new_xtemplate_form.remove(*child);
-            }
-
-            Gtk::Grid *grid_name_tags = Gtk::make_managed<Gtk::Grid>();
-            grid_name_tags->set_column_spacing(10);
-            grid_name_tags->set_row_spacing(10);
-            vbox_new_xtemplate_form.pack_start(*grid_name_tags,
-                                               Gtk::PACK_SHRINK);
-            Gtk::Label *label_new_name = Gtk::make_managed<Gtk::Label>();
-            grid_name_tags->attach(*label_new_name, 0, 0, 1, 1);
-            label_new_name->set_text("Name");
-            Gtk::Entry *entry_new_name = Gtk::make_managed<Gtk::Entry>();
-            grid_name_tags->attach(*entry_new_name, 1, 0, 1, 1);
-            entry_new_name->set_text("");
-            Gtk::Label *label_new_tags = Gtk::make_managed<Gtk::Label>();
-            grid_name_tags->attach(*label_new_tags, 0, 1, 1, 1);
-            label_new_tags->set_text("Tags");
-            Gtk::Entry *entry_new_tags = Gtk::make_managed<Gtk::Entry>();
-            grid_name_tags->attach(*entry_new_tags, 1, 1, 1, 1);
-            entry_new_tags->set_tooltip_text("Tags comma-separated");
-            entry_new_tags->set_text("");
-            Gtk::Box *hbox_new_vars =
-                Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 10);
-            vbox_new_xtemplate_form.pack_start(*hbox_new_vars,
-                                               Gtk::PACK_SHRINK);
-            hbox_new_vars->set_halign(Gtk::ALIGN_CENTER);
-            Gtk::Label *label_new_vars = Gtk::make_managed<Gtk::Label>();
-            hbox_new_vars->pack_start(*label_new_vars, Gtk::PACK_SHRINK);
-            label_new_vars->set_text("Template's variables");
-            Gtk::Grid *grid_new_vars = Gtk::make_managed<Gtk::Grid>();
-            grid_new_vars->set_column_spacing(10);
-            grid_new_vars->set_row_spacing(10);
-            vbox_new_xtemplate_form.pack_start(*grid_new_vars,
-                                               Gtk::PACK_SHRINK);
-            Gtk::Button *button_new_var = Gtk::make_managed<Gtk::Button>();
-            hbox_new_vars->pack_start(*button_new_var, Gtk::PACK_SHRINK);
-            image_new_variable.set(pixbuf_new_variable);
-            button_new_var->set_image(image_new_variable);
-            button_new_var->set_always_show_image(true);
-            button_new_var->signal_clicked().connect([this, grid_new_vars]() {
-                int next_var_num = 0;
-                while (grid_new_vars->get_child_at(1, next_var_num)) {
-                    Gtk::Widget *child =
-                        grid_new_vars->get_child_at(1, next_var_num);
-                    if (!child)
-                        break;
-                    next_var_num++;
-                }
-
-                Gtk::Image *image_var = Gtk::make_managed<Gtk::Image>();
-                grid_new_vars->attach(*image_var, 0, next_var_num, 1, 1);
-                image_var->set_halign(Gtk::ALIGN_START);
-                image_var->set(pixbuf_variable);
-                Gtk::Entry *entry_type = Gtk::make_managed<Gtk::Entry>();
-                entry_type->set_placeholder_text("type[=dep-!dep]");
-                entry_type->set_text("");
-                entry_type->signal_changed().connect(
-                    [this, entry_type, image_var]() {
-                        std::string type = entry_type->get_text();
-                        size_t eq = type.find('=');
-                        if (eq != std::string::npos)
-                            type = type.substr(0, eq);
-                        type = trim(type);
-                        if (type.empty())
-                            image_var->set(pixbuf_variable);
-                        else if (type == "XCHECKBOX")
-                            image_var->set(pixbuf_xcheckbox_variable);
-                        else if (type.compare(0, 8, "XVARIANT") == 0)
-                            image_var->set(pixbuf_xvariant_variable);
-                        else if (type == "PlainText")
-                            image_var->set(pixbuf_plaintext_variable);
-                        else
-                            image_var->set(pixbuf_variable);
-                    });
-                grid_new_vars->attach(*entry_type, 1, next_var_num, 1, 1);
-                Gtk::Entry *entry_name = Gtk::make_managed<Gtk::Entry>();
-                entry_name->set_placeholder_text("name");
-                entry_name->set_text("");
-                grid_new_vars->attach(*entry_name, 2, next_var_num, 1, 1);
-                Gtk::Button *button_delete_var =
-                    Gtk::make_managed<Gtk::Button>();
-                Gtk::Image *image_delete = Gtk::make_managed<Gtk::Image>();
-                image_delete->set(pixbuf_delete);
-                button_delete_var->set_image(*image_delete);
-                button_delete_var->set_always_show_image(true);
-                button_delete_var->signal_clicked().connect(
-                    [grid_new_vars, next_var_num]() {
-                        grid_new_vars->remove_row(next_var_num);
-                    });
-                grid_new_vars->attach(*button_delete_var, 3, next_var_num, 1,
-                                      1);
-                grid_new_vars->show_all();
-            });
-            Gtk::Label *label_new_body = Gtk::make_managed<Gtk::Label>();
-            label_new_body->set_text("Body (nodes)");
-            vbox_new_xtemplate_form.pack_start(*label_new_body,
-                                               Gtk::PACK_SHRINK);
-
-            Gtk::Box *hbox_body =
-                Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 8);
-            vbox_new_xtemplate_form.pack_start(*hbox_body,
-                                               Gtk::PACK_EXPAND_WIDGET);
-
-            Gtk::Box *vbox_palette =
-                Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_VERTICAL, 4);
-            hbox_body->pack_start(*vbox_palette, Gtk::PACK_SHRINK);
-            auto *label_palette = Gtk::make_managed<Gtk::Label>("Palette");
-            label_palette->set_halign(Gtk::ALIGN_START);
-            vbox_palette->pack_start(*label_palette, Gtk::PACK_SHRINK);
-
-            Gtk::Frame *frame_new_body = Gtk::make_managed<Gtk::Frame>();
-            hbox_body->pack_start(*frame_new_body, Gtk::PACK_EXPAND_WIDGET);
-            Gtk::ScrolledWindow *scrolled_new_body =
-                Gtk::make_managed<Gtk::ScrolledWindow>();
-            frame_new_body->add(*scrolled_new_body);
-            scrolled_new_body->set_name("white_background");
-            scrolled_new_body->set_policy(Gtk::POLICY_AUTOMATIC,
-                                          Gtk::POLICY_AUTOMATIC);
-            auto *block_canvas = Gtk::make_managed<BlockCanvas>();
-            scrolled_new_body->add(*block_canvas);
-
-            auto add_palette_btn = [vbox_palette, block_canvas](
-                                       const char *label, BlockKind kind) {
-                auto *btn = Gtk::make_managed<Gtk::Button>(label);
-                vbox_palette->pack_start(*btn, Gtk::PACK_SHRINK);
-                btn->signal_clicked().connect(
-                    [block_canvas, kind]() { block_canvas->add_block(kind); });
-            };
-            add_palette_btn("TEXT", BlockKind::Text);
-            add_palette_btn("IF_ON", BlockKind::IfOn);
-            add_palette_btn("IF_OFF", BlockKind::IfOff);
-            add_palette_btn("IF_EQ", BlockKind::IfEq);
-            add_palette_btn("IF_NEQ", BlockKind::IfNeq);
-
-            Gtk::Button *button_create_xtemplate =
-                Gtk::make_managed<Gtk::Button>();
-            vbox_new_xtemplate_form.pack_start(*button_create_xtemplate,
-                                               Gtk::PACK_SHRINK);
-            button_create_xtemplate->set_label("Create");
-            button_create_xtemplate->set_sensitive(false);
-
-            auto refresh_create_sensitive = [button_create_xtemplate,
-                                             entry_new_name, block_canvas]() {
-                button_create_xtemplate->set_sensitive(
-                    !entry_new_name->get_text().empty() &&
-                    !block_canvas->empty());
-            };
-            entry_new_name->signal_changed().connect(refresh_create_sensitive);
-            block_canvas->signal_changed().connect(refresh_create_sensitive);
-
-            button_create_xtemplate->signal_clicked().connect([this,
-                                                               grid_new_vars,
-                                                               entry_new_name,
-                                                               entry_new_tags,
-                                                               block_canvas]() {
-                std::vector<std::string> vars_types, vars_names;
-                std::vector<std::vector<std::string>> vars_tags;
-                int row = 0;
-                while (grid_new_vars->get_child_at(1, row) &&
-                       grid_new_vars->get_child_at(2, row)) {
-                    Gtk::Widget *child_type =
-                        grid_new_vars->get_child_at(1, row);
-                    Gtk::Widget *child_name =
-                        grid_new_vars->get_child_at(2, row);
-                    if (child_type && child_name) {
-                        Gtk::Entry *entry_type =
-                            dynamic_cast<Gtk::Entry *>(child_type);
-                        Gtk::Entry *entry_name =
-                            dynamic_cast<Gtk::Entry *>(child_name);
-                        if (entry_type && entry_name) {
-                            if (entry_name->get_text().empty()) {
-                                show_copyable_mess(
-                                    Gtk::MESSAGE_ERROR,
-                                    "Variable's name is required");
-                                return;
-                            }
-                            std::string var_type = entry_type->get_text();
-                            std::string var_name = entry_name->get_text();
-                            std::vector<std::string> var_tags;
-                            std::string tag_errors;
-                            strip_trailing_var_tags(var_type, var_tags,
-                                                    var_name, tag_errors);
-                            if (!tag_errors.empty()) {
-                                show_copyable_mess(Gtk::MESSAGE_WARNING,
-                                                   tag_errors);
-                            }
-                            vars_types.push_back(var_type);
-                            vars_names.push_back(var_name);
-                            vars_tags.push_back(var_tags);
-                        }
-                    }
-                    ++row;
-                }
-                std::vector<
-                    std::vector<std::tuple<unsigned short, std::string, bool>>>
-                    vars_dependent;
-                std::string dep_errors;
-                if (!finalize_vars_dependencies(vars_types, vars_names,
-                                                vars_dependent, dep_errors)) {
-                    vars_dependent.assign(vars_names.size(), {});
-                }
-                if (!dep_errors.empty()) {
-                    show_copyable_mess(
-                        Gtk::MESSAGE_WARNING,
-                        "Depends-on issues (invalid links skipped):\n\n" +
-                            dep_errors);
-                }
-                Gtk::TreeModel::Row new_row = *(liststore_xtemplates->append());
-                new_row[xtemplate_cols.name] = entry_new_name->get_text();
-                new_row[xtemplate_cols.vars_types] = vars_types;
-                new_row[xtemplate_cols.vars_names] = vars_names;
-                new_row[xtemplate_cols.vars_dependent] = vars_dependent;
-                new_row[xtemplate_cols.vars_tags] = vars_tags;
-                new_row[xtemplate_cols.tags] =
-                    split_by_comma(entry_new_tags->get_text());
-                std::string body = block_canvas->serialize();
-                ParseDiagnostics body_diag;
-                Node *root = Node::parse(body, &body_diag);
-                Node::destroy(root);
-                if (!body_diag.empty()) {
-                    show_copyable_mess(
-                        Gtk::MESSAGE_WARNING,
-                        "Body parse issues (template still saved):\n\n" +
-                            body_diag.join());
-                }
-                new_row[xtemplate_cols.body] = body;
-                treeview_xtemplates.get_selection()->select(
-                    filter_xtemplates->children().begin());
-                no_changes = false;
-                app_state = STATE_SEARCH;
-                stack_main.set_visible_child(frame_xtemplates);
-            });
-            label_new_vars->set_margin_top(20);
-            label_new_body->set_margin_top(20);
-            vbox_new_xtemplate_form.show_all();
-            stack_main.set_visible_child(vbox_new_xtemplate_form);
-            button_new_var->clicked();
-        }
-
         void on_delete_xtemplate_clicked() {
             if (app_state != STATE_SEARCH) {
                 stack_main.set_visible_child(frame_xtemplates);
                 app_state = STATE_SEARCH;
+                hbox_bottom.set_visible(true);
                 return;
             }
             Gtk::TreeModel::iterator curr_xtemplate =
@@ -1015,11 +770,6 @@ class XGtkmm3Template : public Gtk::Window {
             set_tool_icon(toolbutton_open_xtemplate, image_open_xtemplate,
                           pixbuf_open_xtemplate);
 
-            toolbar_main.insert(toolbutton_new_xtemplate, -1);
-            toolbutton_new_xtemplate.set_tooltip_text("New xtemplate");
-            set_tool_icon(toolbutton_new_xtemplate, image_new_xtemplate,
-                          pixbuf_new_xtemplate);
-
             toolbar_main.insert(toolbutton_delete_xtemplate, -1);
             toolbutton_delete_xtemplate.set_tooltip_text("Delete xtemplate");
             set_tool_icon(toolbutton_delete_xtemplate, image_delete_xtemplate,
@@ -1060,8 +810,6 @@ class XGtkmm3Template : public Gtk::Window {
                 [this]() { on_select_xfile_clicked(); });
             toolbutton_open_xtemplate.signal_clicked().connect(
                 [this]() { on_open_xtemplate_clicked(); });
-            toolbutton_new_xtemplate.signal_clicked().connect(
-                [this]() { on_new_xtemplate_clicked(); });
             toolbutton_delete_xtemplate.signal_clicked().connect(
                 [this]() { on_delete_xtemplate_clicked(); });
             toolbutton_display_hardcoded_xtemplates.signal_clicked().connect(
@@ -1103,7 +851,7 @@ class XGtkmm3Template : public Gtk::Window {
         Gtk::Box vbox_main{Gtk::ORIENTATION_VERTICAL, 10};
         Gtk::Toolbar toolbar_main;
         Gtk::ToolButton toolbutton_select_xfile, toolbutton_open_xtemplate,
-            toolbutton_new_xtemplate, toolbutton_delete_xtemplate,
+            toolbutton_delete_xtemplate,
             toolbutton_display_hardcoded_xtemplates, toolbutton_clear_filtering;
         Gtk::ToolItem toolitem_xfiles_cache_list;
         Gtk::ComboBoxText combobox_xfiles_cache_list;

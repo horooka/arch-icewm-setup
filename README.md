@@ -7,20 +7,21 @@ which are either a task or a navigation path (e.g filesystem path or url)
 
 ```
 Commands:
-  list             lists dests in interactive mode, on dest click performs 'go <dest>' logic
-  list <group>     lists dests of group in interactive mode
-  edit             opens navdict.ini
-  go <dest>        cd/display/open/execute depends on dest's path / brief / note path / command fields priority
-  brief-go <dest>  displays brief note and performs go
-  note-go <dest>   displays note and performs go
-  startup          runs on_startup command from config
-  <dest>           gives a path to a dest
+  list                lists dests in interactive mode
+  list <group>        lists dests of the group in interactive mode
+  list-filter <cond>  lists dests satisfying condition in interactive mode
+  get <dest>          prints the path of the dest
+  get-filter <cond>   prints dest_name of the firstdest satisfying condition
+  query <query>       allows to query the navdict into stdout
+  brief-get <dest>    prints the brief of the dest
+  note-get <dest>     prints the note of the dest
+  get-startup         prints the startup command from config
 ```
 
 ## Nav file format
 
 - Destination format:
-`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$P<priority num>][$F formatting num]`.
+`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num]`.
 Entry required to have either dest path, brief, note path or a command to run, otherwise entry is ignored
 
 - Destination group format:
@@ -53,18 +54,25 @@ Specifies the command to run on machine startup (unset on default)
 on_startup=$Snav list todo
 ```
 
+## Query syntax
+SQL-like syntax for querying the navdict
+
+- Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`
+- Supported keywords: `SELECT`, `WHERE`, `LIMIT`
+
 # XTemplate
 
 Gtkmm3 app for using and creating clipboard xtemplates
 
 ## Features
 
-- Storing of xtemplates in a file at ~/.config/xtemplate.txt
+- Storing of xtemplates in a file at ~/.config/xtemplate.d/xtemplate.txt with
+opportunity to manage multiple xtemplate files
     1. Location of the default file can be changed in config
 - Opportunity to use hardcoded config as include/xtemplate/xtemplate_hardcoded.h file
     1. Hardcoded xtemplates' displaying can be toggled via toolbar checkbox
-- Opportunity to manage multiple xtemplate files
 - Conditional blocks in xtemplate bodies via an AST (`##IF_*` / `##END`)
+- Possibility to reuse templates by recursive rendering with ##XTEMPLATE directive
 - Exposed rendering API via CLI mode (rendering, xtemplates listing, xtemplates' vars listing)
 
 ## Config file format
