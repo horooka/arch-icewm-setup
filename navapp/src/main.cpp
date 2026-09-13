@@ -10,9 +10,53 @@ UICode *code_notes;
 Dest *note_dest_shown;
 UILabel *label_typed_dest;
 
-std::vector<DestGroup> dests_groups;
+std::vector<Dest> dests;
 Settings settings;
 std::string typed_dest = "Type dest: ";
+
+static char *alloc_format(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    va_list copy;
+    va_copy(copy, args);
+    int size = vsnprintf(NULL, 0, fmt, args);
+    va_end(args);
+    if (size < 0) {
+        va_end(copy);
+        return NULL;
+    }
+
+    char *result = (char *)malloc((size_t)size + 1);
+    if (result != NULL)
+        vsnprintf(result, (size_t)size + 1, fmt, copy);
+    va_end(copy);
+    return result;
+}
+
+char status_to_symbol(const Dest &dest) {
+    for (const auto status_to_symbol_map : settings.status_to_symbol_map) {
+        if (status_to_symbol_map.first == dest.dest_kind)
+            return status_to_symbol_map.second;
+    }
+    if (dest.dest_kind == "dest-kind") {
+        for (const std::string &field : settings.fields_priority) {
+            if (field == "command") {
+                if (!dest.command.empty())
+                    return 'C';
+            } else if (field == "path") {
+                if (!dest.path.empty())
+                    return 'P';
+            } else if (field == "note") {
+                if (!dest.note_path.empty())
+                    return 'N';
+            } else if (field == "brief") {
+                if (!dest.brief.empty())
+                    return 'B';
+            }
+        }
+    }
+    return '?';
+}
 
 static void apply_label_formatting(UILabel *label, unsigned char formatting) {
     unsigned char foreground = formatting & 0x0F;
@@ -33,7 +77,7 @@ int on_key_pressed(UIElement *element, UIMessage message, int di, void *dp) {
             typed_dest.pop_back();
     } else if (m->code == UI_KEYCODE_ENTER) {
         Dest dest;
-        bool found = find_dest(dests_groups, typed_dest.substr(11), dest);
+        bool found = find_dest(dests, typed_dest.substr(11), dest);
         if (!found)
             return 0;
         unsigned char on_click = settings.on_click;
@@ -53,7 +97,7 @@ int on_key_pressed(UIElement *element, UIMessage message, int di, void *dp) {
             typed_dest += code;
     }
     Dest dest;
-    bool found = find_dest(dests_groups, typed_dest.substr(11), dest);
+    bool found = find_dest(dests, typed_dest.substr(11), dest);
     if (found) {
         note_dest_shown = nullptr;
         std::string note;
@@ -62,23 +106,6 @@ int on_key_pressed(UIElement *element, UIMessage message, int di, void *dp) {
     }
     UILabelSetContent(label_typed_dest, typed_dest.c_str(), -1);
     return 1;
-}
-
-int on_destgroup_triggered(UIElement *element, UIMessage message, int di,
-                           void *dp) {
-    (void)dp;
-    DestGroup *destgroup = (DestGroup *)element->cp;
-    if (!destgroup)
-        return 0;
-    if (message == UI_MSG_UPDATE && di == UI_UPDATE_HOVERED &&
-        element->window->hovered == element) {
-        note_dest_shown = nullptr;
-        std::string note;
-        append_destgroup_note(destgroup, note, settings.fields_priority);
-        UICodeInsertContent(code_notes, note.c_str(), -1, true);
-        return 0;
-    }
-    return 0;
 }
 
 int on_dest_triggered(UIElement *element, UIMessage message, int di, void *dp) {
@@ -106,39 +133,65 @@ int on_dest_triggered(UIElement *element, UIMessage message, int di, void *dp) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        std::cout
-            << "Usage: navapp <command> <arg>\n\n"
-               "Commands:\n"
-               "  list              lists dests in interactive "
-               "mode\n"
-               "  list <group>      lists dests of the group in "
-               "interactive mode\n"
-               "  get <dest>        prints the path of the dest\n"
-               "  brief-get <dest>  prints the brief of the "
-               "dest\n"
-               "  note-get <dest>   prints the note of the dest\n"
-               "  get-startup       prints the startup command from config\n"
-            << std::endl;
+        std::cout << "Usage: navapp <command> <arg>\n\n"
+                     "Commands:\n"
+                     "  list                lists dests in interactive "
+                     "mode, on dest click performs 'go <dest>' logic\n"
+                     "  list <group>        lists dests of the group "
+                     "in interactive mode\n"
+                     "  list-filter <cond>  lists dests satisfying "
+                     "condition in interactive mode\n"
+                     "  get <dest>          prints the path of the dest\n"
+                     "  get-filter <cond>   prints dest_name of the first"
+                     " dest satisfying condition\n"
+                     "  brief-get <dest>    prints the brief of the "
+                     "dest\n"
+                     "  note-get <dest>     prints the note of the dest\n"
+                     "  <com above> -       performs command with the filter "
+                     "compiled previously\n"
+                     "  <com above> <..> =  performs command without caching "
+                     "compiled filter\n"
+                     "  query <query>       allows to query the navdict "
+                     "into stdout\n"
+                     "  get-startup         prints the startup command "
+                     "from config\n"
+                  << std::endl;
         return 0;
     }
+#ifdef DEBUG
+    std::cout << "DEBUG MODE IS ON\n";
+#endif
     const std::string command = argv[1];
-    const std::string group_search =
-        argc > 2 && (command == "list") ? argv[2] : "";
-
     std::string errors;
     char *home = std::getenv("HOME");
     if (!home) {
         std::cerr << "$HOME not set\n";
         return 1;
     }
-    parse_navdict(std::string(home) + "/.config/navdict.ini", dests_groups,
-                  settings, errors, group_search, command == "get-startup");
     if (command != "list") {
-        if (!errors.empty()) {
-            std::cerr << "Parse errors:\n" << errors << std::endl;
-            return 1;
-        }
-        if (command == "get-startup") {
+        if (command == "dests-list") {
+            parse_navdict(std::string(home) + "/.config/navdict.ini", dests,
+                          settings, errors, NULL, M_NONE);
+            if (!errors.empty()) {
+                std::cerr << "Parse errors 4:\n" << errors << std::endl;
+                return 1;
+            }
+            for (const auto &dest : dests) {
+                if (dest.dest_kind.empty()) {
+                    printf(" -  %s\n", dest.dest_name.c_str());
+                } else {
+                    printf("[%c] %s\n", status_to_symbol(dest),
+                           dest.dest_name.c_str());
+                }
+            }
+            return 0;
+        } else if (command == "get-startup") {
+            parse_navdict(std::string(home) + "/.config/navdict.ini", dests,
+                          settings, errors, NULL, M_STARTUP);
+            if (!errors.empty()) {
+                std::cerr << "Parse errors 3:\n" << errors << std::endl;
+                return 1;
+            }
             std::string on_startup = settings.on_startup;
             if (on_startup.empty()) {
                 return 1;
@@ -146,42 +199,75 @@ int main(int argc, char **argv) {
                 std::cout << on_startup;
                 return 0;
             }
-        }
-        if (argc == 2) {
+        } else if (argc == 2) {
             std::cerr << "Incorrect args count\n";
             return 1;
         }
-        Dest dest;
-        bool found = find_dest(dests_groups, argv[2], dest);
-        if (!found) {
-            std::cerr << "Dest not found: " << argv[2] << std::endl;
-            return 1;
-        }
-        if (command == "get") {
-            std::string field;
-            int ret = go(dest, field, settings.fields_priority);
-            std::cout << field;
-            return ret;
-        } else if (command == "brief-get") {
-            if (!dest.brief.empty()) {
-                std::cout << dest.brief;
-                return 0;
+        bool cache = argc < 4 || strcmp(argv[3], "=") != 0;
+        const char *filter = NULL;
+        if (command == "get-filter")
+            filter = alloc_format("%s", argv[2]);
+        else
+            filter = alloc_format("dest = '%s'", argv[2]);
+        if (command == "query") {
+            query(argv[2], dests, errors);
+            if (!errors.empty()) {
+                std::cerr << "Query error:\n" << errors << std::endl;
+                return 1;
             }
-            std::cerr << "Dest " << argv[2] << " has no brief" << std::endl;
-            return 1;
-        } else if (command == "note-get") {
-            if (!dest.note_path.empty()) {
-                std::cout << dest.note_path;
-                return 0;
+            return 0;
+        } else if (command != "list-filter") {
+            parse_navdict(std::string(home) + "/.config/navdict.ini", dests,
+                          settings, errors, filter,
+                          MCOMPOSE(M_FIRST, strcmp(argv[2], "-") == 0, cache));
+            if (!errors.empty()) {
+                std::cerr << "Parse errors 1:\n" << errors << std::endl;
+                return 1;
             }
-            std::cerr << "Dest " << argv[2] << " has no note" << std::endl;
-            return 1;
-        } else {
-            std::cerr << "Unknown command: \"" << command << "\"" << std::endl;
-            return 1;
+            Dest dest = dests[0];
+            if (command == "get" || command == "get-filter") {
+                std::string field;
+                int ret = go(dest, field, settings.fields_priority);
+                std::cout << field;
+                return ret;
+            } else if (command == "brief-get") {
+                if (!dest.brief.empty()) {
+                    std::cout << dest.brief;
+                    return 0;
+                }
+                std::cerr << "Dest " << argv[2] << " has no brief" << std::endl;
+                return 1;
+            } else if (command == "note-get") {
+                if (!dest.note_path.empty()) {
+                    std::cout << dest.note_path;
+                    return 0;
+                }
+                std::cerr << "Dest " << argv[2] << " has no note" << std::endl;
+                return 1;
+            } else {
+                std::cerr << "Unknown command: \"" << command << "\""
+                          << std::endl;
+                return 1;
+            }
         }
     }
 
+    const char *filter = NULL;
+    if (argc >= 3) {
+        if (command == "list-filter")
+            filter = alloc_format("%s", argv[2]);
+        else
+            filter = alloc_format("group = '%s'", argv[2]);
+    }
+    bool cache = argc != 4 || strcmp(argv[3], "=") != 0;
+    parse_navdict(
+        std::string(home) + "/.config/navdict.ini", dests, settings, errors,
+        filter,
+        MCOMPOSE(M_NONE, argc >= 3 && strcmp(argv[2], "-") == 0, cache));
+    if (!errors.empty()) {
+        std::cout << "Parse errors 0:\n" << errors << std::endl;
+        return 1;
+    }
     UIInitialise();
     window = UIWindowCreate(0, 0, "Nav", 0, 0);
     window->e.messageUser = on_key_pressed;
@@ -199,28 +285,31 @@ int main(int argc, char **argv) {
     label_typed_dest =
         UILabelCreate(&panel_dests->e, UI_ELEMENT_BORDER, "Type dest: ", -1);
     UISpacerCreate(&panel_dests->e, 0, 0, 10);
-    for (auto &dest_group : dests_groups) {
-        const std::string &group_name = dest_group.name;
-        if (!group_search.empty() && group_name != group_search)
-            continue;
-        const unsigned char formatting = dest_group.formatting;
-        std::string group_name_displayed = std::string("[") + group_name + "]";
-        UILabel *group_label = UILabelCreate(&panel_dests->e, UI_ELEMENT_H_FILL,
-                                             group_name_displayed.c_str(), -1);
-        apply_label_formatting(group_label, formatting);
-        group_label->e.messageUser = on_destgroup_triggered;
-        group_label->e.cp = &dest_group;
-        for (Dest &dest : dest_group.dests) {
-            UILabel *dest_label = UILabelCreate(
-                &panel_dests->e, UI_ELEMENT_H_FILL,
-                (std::string("    -  ") + dest.dest_name).c_str(), -1);
-            apply_label_formatting(dest_label, dest.formatting);
-            dest_label->e.messageUser = on_dest_triggered;
-            dest_label->e.cp = &dest;
+    std::string last_group_name;
+    for (Dest &dest : dests) {
+        if (last_group_name != dest.group_name) {
+            UISpacerCreate(&panel_dests->e, 0, 0, 5);
+            last_group_name = dest.group_name;
+            std::string group_name_displayed =
+                std::string("[") + last_group_name + "]";
+            UILabel *group_label =
+                UILabelCreate(&panel_dests->e, UI_ELEMENT_H_FILL,
+                              group_name_displayed.c_str(), -1);
+            group_label->e.cp = &last_group_name;
+            UISpacerCreate(&panel_dests->e, 0, 0, 5);
         }
-        if (errors.empty()) {
-            UISpacerCreate(&panel_dests->e, 0, 0, 10);
+        char *dest_str = NULL;
+        if (dest.dest_kind.empty()) {
+            dest_str = alloc_format("   -  %s", dest.dest_name.c_str());
+        } else {
+            dest_str = alloc_format("  [%c] %s", status_to_symbol(dest),
+                                    dest.dest_name.c_str());
         }
+        UILabel *dest_label =
+            UILabelCreate(&panel_dests->e, UI_ELEMENT_H_FILL, dest_str, -1);
+        apply_label_formatting(dest_label, dest.formatting);
+        dest_label->e.messageUser = on_dest_triggered;
+        dest_label->e.cp = &dest;
     }
 
     return UIMessageLoop();
