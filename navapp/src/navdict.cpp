@@ -1,47 +1,33 @@
-#include "nav.h"
+#include "stack_machine.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+const char *const OPCODE_PATH_POSTFIX = ".cache/nav/opcode.bin";
 
 void trim(std::string &str) {
     str.erase(str.find_last_not_of(" \t\n\r\f\v") + 1);
     str.erase(0, str.find_first_not_of(" \t\n\r\f\v"));
 }
 
-bool find_dest(const std::vector<DestGroup> &dests_groups,
-               const std::string &dest_name, Dest &dest) {
-    for (const auto &dest_group : dests_groups) {
-        const auto &dests = dest_group.dests;
-        if (const auto dest_it = std::find_if(dests.begin(), dests.end(),
-                                              [&dest_name](const Dest &dest) {
-                                                  return dest.dest_name ==
-                                                         dest_name;
-                                              });
-            dest_it != dests.end()) {
-            dest = *dest_it;
-            return true;
-        }
+bool find_dest(const std::vector<Dest> &dests, const std::string &dest_name,
+               Dest &dest_out) {
+    if (const auto dest_it = std::find_if(dests.begin(), dests.end(),
+                                          [&dest_name](const Dest &dest) {
+                                              return dest.dest_name ==
+                                                     dest_name;
+                                          });
+        dest_it != dests.end()) {
+        dest_out = *dest_it;
+        return true;
     }
     return false;
-}
-
-size_t find_group(const std::vector<DestGroup> &dests_groups,
-                  const std::string &group_name) {
-    size_t group_idx = 0;
-    for (const auto &group : dests_groups) {
-        if (group.name == group_name) {
-            return group_idx;
-        }
-        ++group_idx;
-    }
-    return std::string::npos;
 }
 
 unsigned char go(const Dest &dest, std::string &field_out,
@@ -70,24 +56,6 @@ unsigned char go(const Dest &dest, std::string &field_out,
         }
     }
     return 1;
-}
-
-void append_destgroup_note(const DestGroup *dest_group, std::string &output,
-                           const std::array<std::string, 4> &fields_priority) {
-    unsigned char group_len = dest_group->name.size();
-    std::string group_border(group_len, '=');
-    output += group_border + "\n";
-    output += dest_group->name + "\n";
-    output += group_border + "\n";
-    std::vector<Dest> dests = dest_group->dests;
-    if (dests.empty())
-        return;
-    for (const auto &dest : dests) {
-        append_dest_note(&dest, output, true, fields_priority);
-    }
-    output.pop_back();
-    output.pop_back();
-    output.pop_back();
 }
 
 void append_dest_note(const Dest *dest, std::string &output, bool in_group,
@@ -160,7 +128,7 @@ std::vector<std::string> split_by_newline(const std::string &str) {
     return lines;
 }
 
-std::array<std::string, 4> split_by_comma(const std::string &str) {
+std::array<std::string, 4> split_priorities(const std::string &str) {
     std::array<std::string, 4> fields;
     std::istringstream ss(str);
     std::string field;
@@ -171,14 +139,24 @@ std::array<std::string, 4> split_by_comma(const std::string &str) {
     return fields;
 }
 
-void sort_by_priority(std::vector<Dest> &dests) {
-    std::stable_sort(
-        dests.begin(), dests.end(),
-        [](const Dest &a, const Dest &b) { return a.priority < b.priority; });
+std::vector<std::string> split_by_comma(const std::string &str) {
+    std::vector<std::string> fields;
+    std::istringstream ss(str);
+    std::string field;
+    while (std::getline(ss, field, ',')) {
+        fields.push_back(field);
+    }
+    return fields;
 }
 
-// Tag ids: 0=$P path, 1=$B brief note text, 2=$N note file, 3=$L priority,
-// 4=$F formatting.
+void sort_by_priority(std::vector<uint16_t> &dests_idxs,
+                      const std::vector<Dest> &dests) {
+    std::stable_sort(dests_idxs.begin(), dests_idxs.end(),
+                     [dests](const uint16_t &a, const uint16_t &b) {
+                         return dests[a].priority > dests[b].priority;
+                     });
+}
+
 struct DestTag {
         unsigned char id;
         size_t pos;
@@ -205,16 +183,18 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
             id = 4;
         else if (kind == 'F')
             id = 5;
-        else if (kind == 'S')
+        else if (kind == 'T')
             id = 6;
-        if (id != 7) {
+        else if (kind == 'S')
+            id = 7;
+        if (id != 8) {
             specifiers.push_back({id, i});
             i += 2;
         } else {
             ++i;
         }
     }
-    specifiers.push_back({7, line.size()});
+    specifiers.push_back({8, line.size()});
     return specifiers;
 }
 
@@ -222,7 +202,8 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
 std::pair<unsigned char, unsigned char>
 parse_dest_line(const std::string &line, std::string &dest_name,
                 std::string &path, std::string &brief, std::string &note_path,
-                std::string &command, std::string &errors) {
+                std::string &task_status, std::string &command,
+                std::string &errors) {
     std::pair<unsigned char, unsigned char> ret = {0, 0};
     dest_name.clear();
     path.clear();
@@ -282,6 +263,9 @@ parse_dest_line(const std::string &line, std::string &dest_name,
             }
             break;
         case 6:
+            task_status = content;
+            break;
+        case 7:
             path = content;
             break;
         }
@@ -313,32 +297,73 @@ static void load_displayed_lines(const std::string &brief,
     displayed_lines.push_back(note_path);
 }
 
-int parse_navdict(const std::string &file_path,
-                  std::vector<DestGroup> &dests_groups, Settings &settings,
-                  std::string &errors, const std::string &arg,
-                  bool startup_only) {
+void sprint_syntax_error(std::string &out, const char *query, const char *err,
+                         int symbol) {
+    out = std::string(query) + "\n";
+    out += std::string(' ', strlen(query)) + "^\n";
+    out += std::string(' ', strlen(query)) + err + " at " +
+           std::to_string(symbol) + "\n";
+}
+
+int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
+                  Settings &settings, std::string &errors, const char *filter,
+                  char stop_mode) {
     std::string output;
     if (int ret = read_ate(file_path, output, errors); ret != 0)
         return ret;
     std::istringstream ss(output);
     std::string curr_group_name;
-    DestGroup curr_group;
     unsigned char curr_formatting = 0;
-    std::vector<Dest> curr_dests = {};
-    bool have_group = false;
     std::string line;
+    uint8_t *buffer = NULL;
+    size_t buffer_size = 0;
+    char **const_strs = NULL;
+    if (filter) {
+        TokenStream ts;
+        if (!tokenize_into(&ts, filter, strlen(filter))) {
+            errors += "tokenize failed";
+            return 1;
+        }
+        char *compile_err = NULL;
+        int compile_symbol = 0;
+        char *home = getenv("HOME");
+        if (!home) {
+            errors += "HOME environment variable not set\n";
+            return 1;
+        } else if (home[strlen(home) - 1] == '/') {
+            home[strlen(home) - 1] = '\0';
+        }
+        char *expanded_opcode_path =
+            alloc_format("%s/%s", home, OPCODE_PATH_POSTFIX);
+        int compile_ret =
+            compile(&ts, expanded_opcode_path, compile_err, &compile_symbol)
+                .as.yes;
+        if (compile_err) {
+            sprint_syntax_error(errors, filter, compile_err, compile_symbol);
+            return 1;
+        }
+        FILE *file = fopen(expanded_opcode_path, "rb");
+        if (!file) {
+            printf("error opening opcode file\n");
+            return 1;
+        }
+        if (fseek(file, 0, SEEK_END) != 0) {
+            fclose(file);
+            return -1;
+        }
+        buffer_size = ftell(file);
+        rewind(file);
+        buffer = (uint8_t *)malloc(buffer_size);
+        fread(buffer, 1, buffer_size, file);
+        const_strs = (char **)malloc(5 * sizeof(char *));
+        uint16_t offset = decode_const_pool(const_strs, buffer);
+        buffer += offset;
+        buffer_size -= offset;
+    }
     while (std::getline(ss, line)) {
         if (line.empty() || line[0] == '#')
             continue;
         if (line[0] == '[') {
-            if (have_group) {
-                sort_by_priority(curr_dests);
-                curr_group.dests = curr_dests;
-                dests_groups.push_back(curr_group);
-                if (curr_group_name == arg)
-                    return 0;
-            }
-            curr_dests.clear();
             curr_group_name = line.substr(1, line.size() - 2);
             if (size_t comma_pos = curr_group_name.find(',');
                 comma_pos != std::string::npos) {
@@ -356,63 +381,99 @@ int parse_navdict(const std::string &file_path,
                 curr_formatting = 0;
             }
             trim(curr_group_name);
-            if (size_t group_idx = find_group(dests_groups, curr_group_name);
-                group_idx != std::string::npos) {
-                errors += "Duplicate group: \"" + curr_group_name + "\"\n";
-                continue;
-            }
-            curr_group.clear();
-            curr_group.name = curr_group_name;
-            curr_group.formatting = curr_formatting;
-            have_group = true;
             continue;
         }
-        std::string dest, dest_path, brief, note_path, command;
-        const auto formatting_priority = parse_dest_line(
-            line, dest, dest_path, brief, note_path, command, errors);
+        std::string dest, dest_path, brief, note_path, task_status, command;
+        const auto formatting_priority =
+            parse_dest_line(line, dest, dest_path, brief, note_path,
+                            task_status, command, errors);
         if (dest.empty())
             continue;
         if (curr_group_name == "$SETTINGS") {
             if (dest == "priority")
-                settings.fields_priority = split_by_comma(dest_path);
+                settings.fields_priority = split_priorities(dest_path);
             else if (dest == "on_click")
                 settings.on_click = dest_path == "brief-go"  ? 1
                                     : dest_path == "note-go" ? 2
                                                              : 0;
             else if (dest == "on_startup") {
                 settings.on_startup = dest_path;
-                if (startup_only)
+                if (stop_mode == M_STARTUP)
                     return 0;
+            } else if (dest == "statuses") {
+                std::vector<std::string> mappings = split_by_comma(dest_path);
+                for (const std::string &map_pair : mappings) {
+                    const auto iter =
+                        std::find(map_pair.begin(), map_pair.end(), '=');
+                    if (iter == map_pair.end()) {
+                        errors +=
+                            "Invalid status mapping: \"" + map_pair + "\"\n";
+                        continue;
+                    }
+                    std::string status =
+                        map_pair.substr(0, iter - map_pair.begin());
+                    trim(status);
+                    std::string status_symbol =
+                        map_pair.substr(iter - map_pair.begin() + 1);
+                    trim(status_symbol);
+                    if (status_symbol.size() > 1) {
+                        if (status_symbol.size() == 3 &&
+                            status_symbol[0] == '\'' &&
+                            status_symbol[2] == '\'') {
+                            status_symbol = status_symbol.substr(1, 2);
+                        } else {
+                            errors += "Map is longer than 1 symbol: \"" +
+                                      map_pair + "\"\n";
+                            continue;
+                        }
+                    }
+                    for (size_t i = 0; i < settings.status_to_symbol_map.size();
+                         ++i) {
+                        if (settings.status_to_symbol_map[i].first == status) {
+                            const std::string &existing_symbol =
+                                settings.status_to_symbol_map[i].first;
+                            if (existing_symbol != "opened" &&
+                                existing_symbol != "closed" &&
+                                existing_symbol != "finished" &&
+                                existing_symbol != "ongoing") {
+                                errors += "Duplicate status mapping: \"" +
+                                          status + "\"\n";
+                                continue;
+                            }
+                            settings.status_to_symbol_map[i].second =
+                                status_symbol[0];
+                            continue;
+                        }
+                    }
+                    settings.status_to_symbol_map.push_back(
+                        std::make_pair(status, status_symbol[0]));
+                }
             }
-            have_group = false;
-            continue;
-        }
-        if (std::find_if(curr_dests.begin(), curr_dests.end(),
-                         [&dest](const auto &entry) {
-                             return entry.dest_name == dest;
-                         }) != curr_dests.end()) {
-            errors +=
-                "Duplicate dest: \"" + dest + "\" in " + curr_group_name + "\n";
             continue;
         }
         std::vector<std::string> displayed_lines;
         load_displayed_lines(brief, note_path, displayed_lines, errors);
         const unsigned char formatting =
             curr_formatting != 0 ? curr_formatting : formatting_priority.first;
-        Dest destination = {
-            dest,      formatting, dest_path,       brief,
-            note_path, command,    displayed_lines, formatting_priority.second};
-        curr_dests.push_back(destination);
+        Dest destination = {dest,
+                            formatting,
+                            dest_path,
+                            brief,
+                            note_path,
+                            command,
+                            task_status,
+                            curr_group_name,
+                            displayed_lines,
+                            formatting_priority.second};
+        if (filter) {
+            if (execute(buffer, buffer_size, const_strs, &destination) == 1)
+                dests.push_back(destination);
+        } else
+            dests.push_back(destination);
     }
-    if (have_group || !curr_dests.empty()) {
-        sort_by_priority(curr_dests);
-        curr_group.dests = curr_dests;
-        dests_groups.push_back(curr_group);
-    }
-    if (curr_group_name == arg)
-        return 0;
-    if (!arg.empty()) {
-        errors += "Group \"" + arg + "\" not found\n";
+    if (filter && dests.empty()) {
+        errors +=
+            std::string("No one dest found for  \"") + filter + "\" filter\n";
     }
 
     return 0;

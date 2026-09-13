@@ -57,17 +57,24 @@ nav() {
   if [[ -z $1 ]]; then
     echo "Usage: nav [COMMAND] [ARGS]\n"
     echo "Commands:"
-    echo "  list             lists dests in interactive mode, on dest click performs 'go <dest>' logic"
-    echo "  list <group>     lists dests of group in interactive mode"
-    echo "  edit             opens navdict.ini"
-    echo "  go <dest>        cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
-    echo "  brief-go <dest>  displays brief note and performs go"
-    echo "  note-go <dest>   displays note and performs go"
-    echo "  <dest>           gives a path to a dest"
+    echo "  list                lists dests in interactive mode, on dest click performs 'go <dest>' logic"
+    echo "  list <group>        lists dests of group in interactive mode"
+    echo "  list-filter <cond>  lists dests satisfying condition in interactive mode"
+    echo "  query <query>       allows to query the navdict into stdout"
+    echo "  dests-list          lists destinations separated by newlines, used by shell completion"
+    echo "  edit                opens navdict.ini"
+    echo "  go <dest>           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
+    echo "  brief-go <dest>     displays brief note and performs go"
+    echo "  note-go <dest>      displays note and performs go"
+    echo "  <dest>              gives a path to a dest"
     return 1
   fi
 
   case $1 in
+  dests-list)
+    navapp dests-list
+    return 0
+    ;;
   list)
     if [[ -z $2 ]]; then
       dest_name="$(navapp list)"
@@ -133,7 +140,7 @@ nav() {
   esac
   output="$(navapp get "$1" 2>&1)"
   rc=$?
-  if [[ $rc -eq 0 ]]; then
+  if [[ $rc -ne 1 ]]; then
     echo "$output"
     return 0
   else

@@ -8,6 +8,10 @@ add_executable(navapp src/main.cpp src/navdict.cpp)
 
 find_package(X11 REQUIRED)
 
+option(DEBUG "Enable debug mode for opcodes compilation/execution" OFF)
+if(DEBUG)
+  target_compile_definitions(navapp PRIVATE DEBUG)
+endif()
 target_link_libraries(navapp PRIVATE ${X11_LIBRARIES})
 target_include_directories(navapp PRIVATE ${X11_INCLUDE_DIR} include)
 target_compile_options(navapp PRIVATE -DUI_IMPLEMENTATION -DUI_LINUX -g)

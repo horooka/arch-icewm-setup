@@ -1,7 +1,13 @@
+#pragma once
+
 #include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#define M_NONE 0
+#define M_STARTUP 1
+#define M_FIRST 2
 
 struct Settings {
         std::array<std::string, 4> fields_priority = {"command", "path", "note",
@@ -13,6 +19,11 @@ struct Settings {
          */
         unsigned char on_click = 0;
         std::string on_startup = "";
+        std::vector<std::pair<std::string, char>> status_to_symbol_map = {
+            {"opened", ' '},
+            {"closed", 'X'},
+            {"finished", '-'},
+            {"ongoing", '>'}};
 };
 
 struct Dest {
@@ -22,22 +33,10 @@ struct Dest {
         std::string brief = "";
         std::string note_path = "";
         std::string command = "";
+        std::string task_status = "";
+        std::string group_name = "";
         std::vector<std::string> displayed_lines;
         unsigned char priority = 0;
-};
-
-struct DestGroup {
-        unsigned char formatting = 0;
-        std::string name;
-        unsigned char priority = 0;
-        std::vector<Dest> dests;
-
-        void clear() {
-            formatting = 0;
-            name = "";
-            priority = 0;
-            dests.clear();
-        }
 };
 
 const uint32_t palette[] = {
@@ -59,21 +58,18 @@ const uint32_t palette[] = {
     0xFFEDD5E6, // 15 gray
 };
 
-bool find_dest(const std::vector<DestGroup> &dests_groups,
-               const std::string &dest_name, Dest &dest);
-
-void append_destgroup_note(const DestGroup *destgroup, std::string &output,
-                           const std::array<std::string, 4> &fields_priority);
+bool find_dest(const std::vector<Dest> &dests, const std::string &dest_name,
+               Dest &dest_out);
 
 void append_dest_note(const Dest *dest, std::string &output, bool in_group,
                       const std::array<std::string, 4> &fields_priority);
 
-size_t find_group(const std::vector<DestGroup> &dests_groups,
+size_t find_group(const std::vector<Dest> &dests,
                   const std::string &group_name);
 
-int parse_navdict(const std::string &path, std::vector<DestGroup> &dests_groups,
-                  Settings &settings, std::string &errors,
-                  const std::string &arg, bool startup_only);
+int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
+                  Settings &settings, std::string &errors, const char *filter,
+                  char stop_mode);
 
 unsigned char go(const Dest &dest, std::string &field_out,
                  const std::array<std::string, 4> &fields_priority);
