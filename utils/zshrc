@@ -12,6 +12,13 @@ source $ZSH/oh-my-zsh.sh
 plugins=(git)
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
+# Navapp shell completion
+fpath=(~/.oh-my-zsh/completions $fpath)
+autoload -Uz compinit
+compinit
+autoload -Uz _nav
+compdef _nav nav
+
 # =================================================
 #                      UTILS
 # =================================================
@@ -22,11 +29,6 @@ br() {
     else
         brightnessctl s $[ 100 * $1]
     fi
-}
-
-calc() {
-    read -r expr
-    echo "$expr" | bc
 }
 
 grp() {
