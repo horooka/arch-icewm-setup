@@ -1,6 +1,6 @@
 set -eu
 
-sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake opencode
+sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake opencode ttf-meslo-nerd
 
 # ============
 # === Home ===
@@ -20,7 +20,6 @@ for i in Xresources utils/zshrc; do
     cp $i ~/.$i
   fi
 done
-sudo mv MesloLGSNerdFont-Regular.ttf /usr/share/fonts
 chsh -s /usr/bin/zsh
 
 # ===============
@@ -120,7 +119,6 @@ echo "=== oh-my-zsh ==="
 echo "=================\n\n"
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 git clone https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
-sudo cp MesloLGSNerdFont-Regular.ttf /usr/share/fonts
 chsh -s /usr/bin/zsh
 mkdir -p "$HOME/.oh-my-zsh/completions"
 cp utils/_nav "$HOME/.oh-my-zsh/completions/"
