@@ -9,7 +9,8 @@
 enum { TS_LOOKAHEAD = 2 };
 enum { CINT_IDENT_MAX = 7 };
 
-static const char *const keywords[] = {"SELECT", "FROM", "WHERE", "LIMIT"};
+static const char *const keywords[] = {"SELECT", "FROM",   "WHERE", "LIMIT",
+                                       "ORDER",  "BY",     "ASC",   "DESC"};
 
 enum { KEYWORDS_COUNT = sizeof(keywords) / sizeof(keywords[0]) };
 

@@ -33,7 +33,7 @@ _nav() {
     _describe 'project' display values
   elif (( CURRENT == 3 )); then
     case $words[2] in
-      go|brief-go|note-go)
+      go|brief|note|brief-go|note-go)
         _describe 'project' display values
         ;;
       *)

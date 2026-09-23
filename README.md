@@ -3,36 +3,41 @@
 App with shell wrapper for managing, operating and navigating through the destinations,
 which are either a task or a navigation path (e.g filesystem path or url)
 
-- Usage: nav [COMMAND] [ARGS]
+- Usage: navapp [COMMAND] [ARGS]
 
 ```
 Commands:
-  list                lists dests in interactive mode, on dest click performs 'go <dest>' logic
-  list <group>        lists dests of the group in interactive mode
-  list-filter <cond>  lists dests satisfying condition in interactive mode
-  get <dest>          prints the path of the dest
-  get-filter <cond>   prints dest_name of the first dest satisfying condition
-  brief-get <dest>    prints the brief of the dest
-  note-get <dest>     prints the note of the dest
-  <com above> -       performs command with the filter compiled previously
-  <com above> <..> =  performs command without caching compiled filter
-  query <query>       allows to query the navdict into stdout
-  get-startup         prints the startup command from config
+  list                     lists dests in interactive mode, on dest click performs 'go <dest>' logic
+  list <group>             lists dests of the group in interactive mode
+  list-filter <cond>       lists dests satisfying condition in interactive mode
+  get <dest> [args]        prints the path of the dest with args expanded
+  get-filter <cond>        prints dest_name of the first dest satisfying condition
+  brief-get <dest> [args]  prints the brief of the dest
+  note-get <dest> [args]   prints the note of the dest
+  <com above> -c           performs command with the filter compiled previously
+  <com above> <..> -s      performs command without caching compiled filter
+  query <query> [-f]       allows to query the navdict into stdout ([-f] adds the field header)
+  get-startup              prints the startup command from config
+  dates [--upcoming [N]]   lists dests with dates, sorted by date (also --past, --reverse, --all, --limit N)
 ```
 
 ## Nav file format
 
 - Destination format:
-`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num][$T dest kind]`.
-Entry required to have either dest path, brief, note path or a command to run, otherwise entry is ignored
-  - Dest kind can suit as a symbolic icon which are placed instead of bullets
-in bulleted lists of gui mode is status is present. There is some hardcoded status->symbol
+`<destinatinon name> = [@P<destination path>][@B<task brief>][@N<task note path>][@D<date YYYY-MM-DD>][@C<command to run>][@L<priority level>][@F formatting num][@M dest mark]`.
+Entry required to have either dest path, brief, note path or a command to run,
+otherwise entry is ignored.
+`@D` accepts `YYYY-MM-DD` (or `YYYY/M/D`) and is normalized; an invalid date is
+a parse error. `@` introduces a field specifier, so a literal `@` inside a field
+is written `@@`
+  - Dest mark is a symbolic icon which are placed instead of bullets in bulleted
+lists of gui mode or tab-completion if mark is presented. There is some hardcoded
 mappings (they also can be overriden)
     - closed=`X`
     - started=` `
     - finished=`-`
     - ongoing=`>`
-    - dest-kind - means prioritized return type `get <dest>` logic:
+    - dest - displays prioritized return type of `get <dest>` logic:
       - `C` - command
       - `P` - path
       - `N` - note
@@ -43,15 +48,15 @@ mappings (they also can be overriden)
 
 ### Settings group format
 
-Should be the first group in the file, designated as `[$SETTINGS]` ini-format group
-each value denoted with $S setting specifier
+Should be the first group in the file, designated as `[@SETTINGS]` ini-format group
+each value denoted with @S setting specifier
 
 - Destination fields priority:
 Specifies the `go <dest>` fields priority from higher to lower (default order
 is shown below)
 
 ```ini
-priority=$Scommand,path,note,brief
+priority=@Scommand,path,note,brief
 ```
 
 - UI click response:
@@ -59,48 +64,79 @@ Specifies the default go-mode behaviour on dest click (go / brief-go / note-go)
 (default option is shown below)
 
 ```ini
-on_click=$Sgo
+on_click=@Sgo
 ```
 
 - Startup command:
 Specifies the command to run on machine startup (unset on default)
 
 ```ini
-on_startup=$Snav list todo
+on_startup=@Snav list todo
 ```
 
-- Task statuses:
-Specifies status -> symbol mappings for the task statuses (default mappings
-are shown below)
+- Dest marks mappings:
+Specifies mark -> symbol mappings (default ones are shown below)
 
 ```ini
-task_statuses=$Sclosed=X,started=' ',finished=-,ongoing=>
+marks_map=@Sclosed=X,started=' ',finished=-,ongoing=>
 ```
 
 ## Shell usage
 Can be used as shell shorthands for the destinations by command substitution (e.g
 $EDITOR $(navapp note-get <dest>) for opening dest's note)
-Working shell wrapper for navapp is nav() func in ./utils/shsharedfuncs.sh
+Shell wrapper is provided by `./utils/shsharedfuncs.sh` as nav() func
 
-- Destinations completion - completion of destinations with symbolic task status
-icon by ./utils/_nav
+- Destinations completion - completion of destinations with symbolic destination mark
+icon by `./utils/_nav`
+
+## Argument expansion
+
+`@C`, `@P`, `@N` or `@B` fields can have positional args which are expanded if
+returned by `get`, `brief-get` or `note-get` call (max args amount is 10,
+not used vars placeholders are erased during expansion):
+
+- `@0`, `@1`, ... , `@9` - the corresponding argument, zero-based
+- `@@` - a literal `@`
+- an out-of-range reference, e.g `@9` with a single provided arg, is erased;
+a `@` not followed by a digit or `@` is kept as-is
+
+Example: for the dest `fw = @Cfirefox --new-window @0`, `navapp get fw google.com`
+returns `firefox --new-window google.com` with return code, corresponding to
+command field, which can be executed by shell wrapper
 
 ## Query syntax
 SQL-like syntax for querying the navdict, `<cond>` args should contain only
 expression, `<query>` can use entire syntax
 
-- Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`
-- Supported funcs: `ICO`
-- Supported keywords: `SELECT`, `WHERE`, `LIMIT`
+- Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `!`
+  (`< > <= >=` compare strings lexicographically when both operands are strings)
+- Supported funcs:
+  - `IS_DIR(path)` - `yes` when the string argument is an existing directory
+    (name is case-insensitive)
+  - `TODAY()` - today's date as `YYYY-MM-DD`
+  - `DAYS_UNTIL(date)` - whole days from today until `date` (negative if past)
+- Supported keywords: `SELECT`, `WHERE`, `ORDER`, `BY`, `ASC`, `DESC`, `LIMIT`
 - Columns:
   - `dest` - dest name
   - `path` - dest path
   - `brief` - dest brief
+  - `note` - dest note filepath
   - `command` - dest command
   - `group` - group name of the dest
   - `level` - dest priority level
   - `format` - dest formatting
-  - `status` - dest status
+  - `mark` - dest mark
+  - `date` - dest date as `YYYY-MM-DD` (empty when unset)
+
+Output is comma-separated rows without a header. Pass `-f` (or `--fields`)
+to prepend a header line with the selected field names, e.g.
+`nav query "SELECT dest, level WHERE group = 'todo'" -f`.
+
+Clauses follow SQL order:
+`SELECT <cols> [WHERE <expr>] [ORDER BY <col> [ASC|DESC], ...] [LIMIT <n>]`.
+`LIMIT` is applied after sorting, and `ORDER BY` defaults to `ASC`. Because
+`date` is a normalized ISO string, `date >= TODAY()` / `date < TODAY()` work
+directly; guard unset dates with `date != ''`.
 
 ### Compilation
 All the filtering commands implemented using stack machine filtering, for instance,
@@ -108,18 +144,42 @@ All the filtering commands implemented using stack machine filtering, for instan
 so all the filtering commands emits opcodes and can reuse them
 
 - Last compiled opcode is stored by default in `~/.cache/nav/opcode.bin`
-and can be reused by passing "-" argument for filtering commands
+and can be reused by passing the `-c` flag to a filtering command
 
-- It is possible to provide additional "=" argument to the filtering command
-to avoid caching opcode
+- It is possible to pass the `-s` flag to a filtering command
+to avoid caching opcode (empty filters, like in `nav list` without specified group,
+are not cached)
 
 ### Examples
 
-- `nav list-filter "group = 'todo' && priority > 0"` - to interactively list
-prioritized todo destinations
+- `nav list-filter "group = 'todo' && priority > 0 && mark = 'suspended'"` - to
+interactively list prioritized todo destinations with suspended mark
 
-- `nav query "SELECT dest, level WHERE group = 'todo'
-&& level > 0"` - to query prioritized todo destinations
+- `nav query "SELECT dest, level WHERE group = 'todo' && level > 0 && mark = 
+'suspended'"` - to query prioritized todo destinations with suspended mark
+
+- `nav query "SELECT dest WHERE IS_DIR(path)"` - to query destinations whose
+path is an existing directory
+
+- `nav query "SELECT dest WHERE !IS_DIR(path)"` - to query destinations whose
+path is not an existing directory
+
+- `nav query "SELECT dest, date WHERE date != '' ORDER BY date LIMIT 5"` - to
+get the 5 nearest dates
+
+- `nav query "SELECT dest WHERE DAYS_UNTIL(date) <= 7 && date != ''"` - to query
+destinations due within a week
+
+- `nav dates --upcoming 7` - same, via the dedicated dates command
+
+## Usage examples
+
+- Creating of a dest as a shortcut for per dir command execution of specified
+group, so e.g `nav exec-dir todo "cd \$dpath && git diff --quiet"` will display
+stage cleanness of the todo directory dests:
+```txt
+exec-dir=@Cnav query "SELECT path WHERE IS_DIR(path) && group = '@0'" | while IFS= read -r dpath; do (@1) && echo "\"$dpath\": +" || echo "\"$dpath\": -"; done
+```
 
 # XTemplate
 
@@ -150,8 +210,8 @@ Config file is a .ini file with the following sections
 
 ```ini
 [CacheList]
-path1=
-path2=
+path1=<unused space>
+path2=<unused space>
 ```
 
 ## Template file format

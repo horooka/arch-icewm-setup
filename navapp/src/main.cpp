@@ -33,12 +33,12 @@ static char *alloc_format(const char *fmt, ...) {
     return result;
 }
 
-char status_to_symbol(const Dest &dest) {
-    for (const auto status_to_symbol_map : settings.status_to_symbol_map) {
-        if (status_to_symbol_map.first == dest.dest_kind)
-            return status_to_symbol_map.second;
+char mark_to_symbol(const Dest &dest) {
+    for (const auto &mark_to_symbol_map : settings.mark_to_symbol_map) {
+        if (mark_to_symbol_map.first == dest.dest_mark)
+            return mark_to_symbol_map.second;
     }
-    if (dest.dest_kind == "dest-kind") {
+    if (dest.dest_mark == "dest") {
         for (const std::string &field : settings.fields_priority) {
             if (field == "command") {
                 if (!dest.command.empty())
@@ -133,29 +133,35 @@ int on_dest_triggered(UIElement *element, UIMessage message, int di, void *dp) {
 
 int main(int argc, char **argv) {
     if (argc == 1) {
-        std::cout << "Usage: navapp <command> <arg>\n\n"
-                     "Commands:\n"
-                     "  list                lists dests in interactive "
-                     "mode, on dest click performs 'go <dest>' logic\n"
-                     "  list <group>        lists dests of the group "
-                     "in interactive mode\n"
-                     "  list-filter <cond>  lists dests satisfying "
-                     "condition in interactive mode\n"
-                     "  get <dest>          prints the path of the dest\n"
-                     "  get-filter <cond>   prints dest_name of the first"
-                     " dest satisfying condition\n"
-                     "  brief-get <dest>    prints the brief of the "
-                     "dest\n"
-                     "  note-get <dest>     prints the note of the dest\n"
-                     "  <com above> -       performs command with the filter "
-                     "compiled previously\n"
-                     "  <com above> <..> =  performs command without caching "
-                     "compiled filter\n"
-                     "  query <query>       allows to query the navdict "
-                     "into stdout\n"
-                     "  get-startup         prints the startup command "
-                     "from config\n"
-                  << std::endl;
+        std::cout
+            << "Usage: navapp <command> <arg>\n\n"
+               "Commands:\n"
+               "  list                     lists dests in interactive "
+               "mode, on dest click performs 'go <dest>' logic\n"
+               "  list <group>             lists dests of the group "
+               "in interactive mode\n"
+               "  list-filter <cond>       lists dests satisfying "
+               "condition in interactive mode\n"
+               "  get <dest> [args]        prints the path of the dest with"
+               " args expanded\n"
+               "  get-filter <cond>        prints dest_name of the first"
+               " dest satisfying condition\n"
+               "  brief-get <dest> [args]  prints the brief of the "
+               "dest\n"
+               "  note-get <dest> [args]   prints the note of the dest\n"
+               "  <com above> -c           performs command with the filter "
+               "compiled previously\n"
+               "  <com above> <..> -s      performs command without caching "
+               "compiled filter\n"
+               "  query <query> [-f]       allows to query the navdict "
+               "into stdout ([-f] adds the field header)\n"
+               "  get-startup              prints the startup command "
+               "from config\n"
+               "  dates [--upcoming [N]]   lists dests with dates sorted by "
+               "date\n"
+               "                           (also --past, --reverse, --all, "
+               "--limit N)\n"
+            << std::endl;
         return 0;
     }
 #ifdef DEBUG
@@ -177,10 +183,10 @@ int main(int argc, char **argv) {
                 return 1;
             }
             for (const auto &dest : dests) {
-                if (dest.dest_kind.empty()) {
+                if (dest.dest_mark.empty()) {
                     printf(" -  %s\n", dest.dest_name.c_str());
                 } else {
-                    printf("[%c] %s\n", status_to_symbol(dest),
+                    printf("[%c] %s\n", mark_to_symbol(dest),
                            dest.dest_name.c_str());
                 }
             }
@@ -199,27 +205,130 @@ int main(int argc, char **argv) {
                 std::cout << on_startup;
                 return 0;
             }
+        } else if (command == "dates") {
+            bool reverse = false, only_past = false, all = false;
+            bool upcoming = false;
+            long upcoming_n = -1;
+            long limit = -1;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "--reverse") == 0)
+                    reverse = true;
+                else if (strcmp(argv[i], "--past") == 0)
+                    only_past = true;
+                else if (strcmp(argv[i], "--all") == 0)
+                    all = true;
+                else if (strcmp(argv[i], "--upcoming") == 0) {
+                    upcoming = true;
+                    if (i + 1 < argc && argv[i + 1][0] != '-')
+                        upcoming_n = atol(argv[++i]);
+                } else if (strcmp(argv[i], "--limit") == 0) {
+                    if (i + 1 < argc)
+                        limit = atol(argv[++i]);
+                } else {
+                    std::cerr << "Unknown dates option: " << argv[i] << "\n";
+                    return 1;
+                }
+            }
+            std::string cond;
+            if (!all)
+                cond = "date != ''";
+            if (upcoming) {
+                if (!cond.empty())
+                    cond += " && ";
+                cond += "DAYS_UNTIL(date) >= 0";
+                if (upcoming_n >= 0)
+                    cond +=
+                        " && DAYS_UNTIL(date) <= " + std::to_string(upcoming_n);
+            } else if (only_past) {
+                if (!cond.empty())
+                    cond += " && ";
+                cond += "date < TODAY()";
+            }
+            std::string q = "SELECT dest, date";
+            if (!cond.empty())
+                q += " WHERE " + cond;
+            q += " ORDER BY date";
+            if (reverse)
+                q += " DESC";
+            if (limit >= 0)
+                q += " LIMIT " + std::to_string(limit);
+
+            std::vector<unsigned char> selected;
+            if (run_query(q, dests, selected, errors, &settings) != 0 ||
+                !errors.empty()) {
+                std::cerr << "Parse errors 5:\n" << errors << std::endl;
+                return 1;
+            }
+            const int32_t today = today_days();
+            for (const auto &dest : dests) {
+                std::string date_col =
+                    dest.date.empty() ? "----------" : dest.date;
+                std::string rel;
+                if (!dest.date.empty()) {
+                    int32_t d = 0;
+                    if (date_to_days(dest.date, d)) {
+                        const int32_t delta = d - today;
+                        if (delta == 0)
+                            rel = "today";
+                        else if (delta > 0)
+                            rel = "in " + std::to_string(delta) + " days";
+                        else
+                            rel = std::to_string(-delta) + " days ago";
+                    }
+                }
+                std::string mark_prefix = "    ";
+                if (!dest.dest_mark.empty())
+                    mark_prefix =
+                        std::string("[") + mark_to_symbol(dest) + "] ";
+                printf("%s  %-12s %s%s\n", date_col.c_str(), rel.c_str(),
+                       mark_prefix.c_str(), dest.dest_name.c_str());
+            }
+            return 0;
         } else if (argc == 2) {
             std::cerr << "Incorrect args count\n";
             return 1;
         }
-        bool cache = argc < 4 || strcmp(argv[3], "=") != 0;
-        const char *filter = NULL;
-        if (command == "get-filter")
-            filter = alloc_format("%s", argv[2]);
-        else
-            filter = alloc_format("dest = '%s'", argv[2]);
         if (command == "query") {
-            query(argv[2], dests, errors);
+            bool show_fields = false;
+            const char *query_line = NULL;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "-f") == 0 ||
+                    strcmp(argv[i], "--fields") == 0)
+                    show_fields = true;
+                else if (!query_line)
+                    query_line = argv[i];
+            }
+            if (!query_line) {
+                std::cerr << "Incorrect args count\n";
+                return 1;
+            }
+            query(query_line, dests, errors, show_fields);
             if (!errors.empty()) {
                 std::cerr << "Query error:\n" << errors << std::endl;
                 return 1;
             }
             return 0;
-        } else if (command != "list-filter") {
+        }
+        const char *filter = NULL;
+        if (command == "get-filter")
+            filter = alloc_format("%s", argv[2]);
+        else
+            filter = alloc_format("dest = '%s'", argv[2]);
+        if (command != "list-filter") {
+            bool cached = false;
+            bool silent = false;
+            std::vector<std::string> args;
+            for (int i = 2; i < argc; i++) {
+                if (strcmp(argv[i], "-s") == 0)
+                    silent = true;
+                else if (strcmp(argv[i], "-c") == 0)
+                    cached = true;
+                else if (i > 2)
+                    args.push_back(argv[i]);
+            }
             parse_navdict(std::string(home) + "/.config/navdict.ini", dests,
                           settings, errors, filter,
-                          MCOMPOSE(M_FIRST, strcmp(argv[2], "-") == 0, cache));
+                          MCOMPOSE(M_FIRST, cached, silent));
             if (!errors.empty()) {
                 std::cerr << "Parse errors 1:\n" << errors << std::endl;
                 return 1;
@@ -227,23 +336,33 @@ int main(int argc, char **argv) {
             Dest dest = dests[0];
             if (command == "get" || command == "get-filter") {
                 std::string field;
-                int ret = go(dest, field, settings.fields_priority);
+                int ret = go(dest, field, settings.fields_priority, args);
                 std::cout << field;
                 return ret;
             } else if (command == "brief-get") {
-                if (!dest.brief.empty()) {
+                if (dest.brief.empty()) {
+                    std::cerr << "Dest " << argv[2] << " has no brief"
+                              << std::endl;
+                    return 1;
+                }
+                if (args.size() > 0) {
+                    std::cout << expand_args(dest.brief, args);
+                } else {
                     std::cout << dest.brief;
-                    return 0;
                 }
-                std::cerr << "Dest " << argv[2] << " has no brief" << std::endl;
-                return 1;
+                return 0;
             } else if (command == "note-get") {
-                if (!dest.note_path.empty()) {
-                    std::cout << dest.note_path;
-                    return 0;
+                if (dest.note_path.empty()) {
+                    std::cerr << "Dest " << argv[2] << " has no note"
+                              << std::endl;
+                    return 1;
                 }
-                std::cerr << "Dest " << argv[2] << " has no note" << std::endl;
-                return 1;
+                if (args.size() > 0) {
+                    std::cout << expand_args(dest.note_path, args);
+                } else {
+                    std::cout << dest.note_path;
+                }
+                return 0;
             } else {
                 std::cerr << "Unknown command: \"" << command << "\""
                           << std::endl;
@@ -259,11 +378,16 @@ int main(int argc, char **argv) {
         else
             filter = alloc_format("group = '%s'", argv[2]);
     }
-    bool cache = argc != 4 || strcmp(argv[3], "=") != 0;
-    parse_navdict(
-        std::string(home) + "/.config/navdict.ini", dests, settings, errors,
-        filter,
-        MCOMPOSE(M_NONE, argc >= 3 && strcmp(argv[2], "-") == 0, cache));
+    bool cached = false;
+    bool silent = false;
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "-s") == 0)
+            silent = true;
+        else if (strcmp(argv[i], "-c") == 0)
+            cached = true;
+    }
+    parse_navdict(std::string(home) + "/.config/navdict.ini", dests, settings,
+                  errors, filter, MCOMPOSE(M_NONE, cached, silent));
     if (!errors.empty()) {
         std::cout << "Parse errors 0:\n" << errors << std::endl;
         return 1;
@@ -299,10 +423,10 @@ int main(int argc, char **argv) {
             UISpacerCreate(&panel_dests->e, 0, 0, 5);
         }
         char *dest_str = NULL;
-        if (dest.dest_kind.empty()) {
+        if (dest.dest_mark.empty()) {
             dest_str = alloc_format("   -  %s", dest.dest_name.c_str());
         } else {
-            dest_str = alloc_format("  [%c] %s", status_to_symbol(dest),
+            dest_str = alloc_format("  [%c] %s", mark_to_symbol(dest),
                                     dest.dest_name.c_str());
         }
         UILabel *dest_label =

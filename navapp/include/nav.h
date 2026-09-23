@@ -8,9 +8,9 @@
 #define M_NONE 0
 #define M_STARTUP 1
 #define M_FIRST 2
-#define MCOMPOSE(x, cached, cache) (x | (cached ? 128 : 0) | (cache ? 64 : 0))
-#define MCACHED(x) (x & 128)
-#define MCACHE(x) (x & 64)
+#define MCOMPOSE(x, cached, silent) (x | (cached ? 128 : 0) | (silent ? 64 : 0))
+#define MCACHED(x) ((x & 128) == 128)
+#define MSILENT(x) ((x & 64) == 64)
 #define MBASE(x) (x & 63)
 
 struct Settings {
@@ -23,7 +23,7 @@ struct Settings {
          */
         unsigned char on_click = 0;
         std::string on_startup = "";
-        std::vector<std::pair<std::string, char>> status_to_symbol_map = {
+        std::vector<std::pair<std::string, char>> mark_to_symbol_map = {
             {"opened", ' '},
             {"closed", 'X'},
             {"finished", '-'},
@@ -36,8 +36,9 @@ struct Dest {
         std::string path = "";
         std::string brief = "";
         std::string note_path = "";
+        std::string date = "";
         std::string command = "";
-        std::string dest_kind = "";
+        std::string dest_mark = "";
         std::string group_name = "";
         std::vector<std::string> displayed_lines;
         unsigned char level = 0;
@@ -71,12 +72,34 @@ void append_dest_note(const Dest *dest, std::string &output, bool in_group,
 size_t find_group(const std::vector<Dest> &dests,
                   const std::string &group_name);
 
+std::string expand_args(const std::string &str,
+                        const std::vector<std::string> &args);
+
 int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                   Settings &settings, std::string &errors, const char *filter,
                   unsigned char mode);
 
 int query(const std::string &line, std::vector<Dest> &dests,
-          std::string &errors);
+          std::string &errors, bool show_fields = false);
+
+/*
+ * Executes a query (SELECT/WHERE/ORDER BY/LIMIT) leaving the filtered, sorted
+ * and limited destinations in `dests` and the selected column indices in
+ * `selected` (empty means "all columns"). Returns 0 on success.
+ */
+int run_query(const std::string &line, std::vector<Dest> &dests,
+              std::vector<unsigned char> &selected, std::string &errors,
+              Settings *settings_out = nullptr);
+
+/* Date helpers. Dates are ISO `YYYY-MM-DD` strings backed by day counts. */
+bool date_to_days(const std::string &in, int32_t &days_out);
+std::string days_to_date(int32_t days);
+std::string today_date();
+int32_t today_days();
 
 unsigned char go(const Dest &dest, std::string &field_out,
                  const std::array<std::string, 4> &fields_priority);
+
+unsigned char go(const Dest &dest, std::string &field_out,
+                 const std::array<std::string, 4> &fields_priority,
+                 const std::vector<std::string> &args);

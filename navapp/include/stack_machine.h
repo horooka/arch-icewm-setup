@@ -4,6 +4,7 @@
 #include "tokenstream.h"
 #include <assert.h>
 #include <ctype.h>
+#include <filesystem>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -29,6 +30,10 @@
 #define L_I32 0x37
 #define AND 0x38
 #define OR 0x39
+#define IS_DIR 0x3a
+#define NOT 0x3b
+#define EQ_YES 0x3c
+#define NEQ_YES 0x3d
 #define ADD_I32 0x40
 #define ADD_STR 0x41
 #define SUB_I32 0x42
@@ -36,6 +41,12 @@
 #define MUL_STR 0x44
 #define DIV_I32 0x45
 #define MOD_I32 0x46
+#define L_STR 0x47
+#define G_STR 0x48
+#define LE_STR 0x49
+#define GE_STR 0x4a
+#define TODAY 0x4b
+#define DAYS_UNTIL 0x4c
 #define SHOW_I32 0x50
 #define SHOW_STR 0x51
 #define SHOW_YES 0x52
@@ -67,7 +78,8 @@ typedef struct {
 static const SchemaCol schema_cols[] = {
     {"dest", STR, 0},  {"path", STR, 1},    {"brief", STR, 2},
     {"note", STR, 3},  {"command", STR, 4}, {"group", STR, 5},
-    {"level", I32, 6}, {"format", I32, 7},  {"status", STR, 8}};
+    {"level", I32, 6}, {"format", I32, 7},  {"mark", STR, 8},
+    {"date", STR, 9}};
 
 static char *alloc_format(const char *fmt, ...) {
     va_list args;
@@ -148,25 +160,25 @@ typedef union ValUnion {
         char *str;
 } ValUnion;
 
-bool get_col_ptr(Dest *dest, unsigned char idx, ValUnion *val_out) {
+bool get_col_ptr(const Dest *dest, unsigned char idx, ValUnion *val_out) {
     switch (idx) {
     case 0:
-        val_out->str = dest->dest_name.data();
+        val_out->str = const_cast<char *>(dest->dest_name.data());
         return true;
     case 1:
-        val_out->str = dest->path.data();
+        val_out->str = const_cast<char *>(dest->path.data());
         return true;
     case 2:
-        val_out->str = dest->brief.data();
+        val_out->str = const_cast<char *>(dest->brief.data());
         return true;
     case 3:
-        val_out->str = dest->note_path.data();
+        val_out->str = const_cast<char *>(dest->note_path.data());
         return true;
     case 4:
-        val_out->str = dest->command.data();
+        val_out->str = const_cast<char *>(dest->command.data());
         return true;
     case 5:
-        val_out->str = dest->group_name.data();
+        val_out->str = const_cast<char *>(dest->group_name.data());
         return true;
     case 6:
         val_out->i32 = dest->level;
@@ -175,7 +187,10 @@ bool get_col_ptr(Dest *dest, unsigned char idx, ValUnion *val_out) {
         val_out->i32 = dest->formatting;
         return true;
     case 8:
-        val_out->str = dest->dest_kind.data();
+        val_out->str = const_cast<char *>(dest->dest_mark.data());
+        return true;
+    case 9:
+        val_out->str = const_cast<char *>(dest->date.data());
         return true;
     default:
 #ifdef DEBUG
@@ -659,38 +674,54 @@ Val compile_binop(struct CompileCtx *ctx, const char *op, Val left, Val right,
             return make_yes_with_type(val_as_i32(left) || val_as_i32(right) ? 1
                                                                             : 0,
                                       MK_TYPE(YES, res_is_var));
-        } else if (strcmp(op, "=") == 0) {
+        } else if (strcmp(op, "=") == 0 || strcmp(op, "!=") == 0) {
+            const bool is_eq = op[0] == '=';
+            if (res_base_type == YES &&
+                (BASE_TYPE(left.type) != YES || BASE_TYPE(right.type) != YES)) {
+                *err_out = (char *)"cannot compare boolean with non-boolean";
+                return make_nan();
+            }
             if (res_is_var)
-                write_byte_to_bytecode(ctx, res_base_type == I32   ? EQ_I32
-                                            : res_base_type == STR ? EQ_STR
-                                                                   : EQ_STR);
-            return make_yes_with_type(cmp(&left, &right),
-                                      MK_TYPE(YES, res_is_var));
-        } else if (strcmp(op, "!=") == 0) {
-            if (res_is_var)
-                write_byte_to_bytecode(ctx, res_base_type == I32   ? NEQ_I32
-                                            : res_base_type == STR ? NEQ_STR
-                                                                   : NEQ_STR);
-            return make_yes_with_type(!cmp(&left, &right),
+                write_byte_to_bytecode(
+                    ctx, res_base_type == I32   ? (is_eq ? EQ_I32 : NEQ_I32)
+                         : res_base_type == STR ? (is_eq ? EQ_STR : NEQ_STR)
+                         : res_base_type == YES ? (is_eq ? EQ_YES : NEQ_YES)
+                                                : (is_eq ? EQ_STR : NEQ_STR));
+            const bool eq = cmp(&left, &right);
+            return make_yes_with_type(is_eq ? eq : !eq,
                                       MK_TYPE(YES, res_is_var));
         } else {
-            int32_t a = val_as_i32(left), b = val_as_i32(right);
-            int rel = (a < b) ? -1 : (a > b) ? 1 : 0;
+            const bool str_cmp = res_base_type == STR;
+            if (str_cmp && (BASE_TYPE(left.type) != STR ||
+                            BASE_TYPE(right.type) != STR)) {
+                *err_out = (char *)"cannot order string with non-string";
+                return make_nan();
+            }
+            int rel;
+            if (str_cmp) {
+                const char *l = left.as.str ? left.as.str : "";
+                const char *r = right.as.str ? right.as.str : "";
+                const int c = strcmp(l, r);
+                rel = c < 0 ? -1 : c > 0 ? 1 : 0;
+            } else {
+                const int32_t a = val_as_i32(left), b = val_as_i32(right);
+                rel = (a < b) ? -1 : (a > b) ? 1 : 0;
+            }
             if (strcmp(op, "<") == 0) {
                 if (res_is_var)
-                    write_byte_to_bytecode(ctx, L_I32);
+                    write_byte_to_bytecode(ctx, str_cmp ? L_STR : L_I32);
                 return make_yes_with_type(rel < 0, MK_TYPE(YES, res_is_var));
             } else if (strcmp(op, ">") == 0) {
                 if (res_is_var)
-                    write_byte_to_bytecode(ctx, G_I32);
+                    write_byte_to_bytecode(ctx, str_cmp ? G_STR : G_I32);
                 return make_yes_with_type(rel > 0, MK_TYPE(YES, res_is_var));
             } else if (strcmp(op, "<=") == 0) {
                 if (res_is_var)
-                    write_byte_to_bytecode(ctx, LE_I32);
+                    write_byte_to_bytecode(ctx, str_cmp ? LE_STR : LE_I32);
                 return make_yes_with_type(rel <= 0, MK_TYPE(YES, res_is_var));
             } else {
                 if (res_is_var)
-                    write_byte_to_bytecode(ctx, GE_I32);
+                    write_byte_to_bytecode(ctx, str_cmp ? GE_STR : GE_I32);
                 return make_yes_with_type(rel >= 0, MK_TYPE(YES, res_is_var));
             }
         }
@@ -858,7 +889,8 @@ uint8_t *encode_const_pool(CompileCtx *ctx, uint16_t *const_pool_size) {
     return const_pool;
 }
 
-void decode_const_pool(char **const_strs, uint8_t *buffer, uint16_t offset) {
+void decode_const_pool(char ***const_strs_out, uint8_t *buffer,
+                       uint16_t offset) {
 #ifdef DEBUG
     printf("const pool:\n");
     printf("  const pool offset: %u\n", offset);
@@ -866,23 +898,108 @@ void decode_const_pool(char **const_strs, uint8_t *buffer, uint16_t offset) {
     int decode_pos = sizeof(offset);
     int const_strs_pos = 0;
     int const_strs_cap = 5;
-    while (decode_pos + (int)sizeof(uint16_t) <= offset) {
-        uint8_t length = buffer[decode_pos++];
+    char **const_strs = *const_strs_out;
+    // Each entry is a 1-byte length followed by that many bytes, so the
+    // smallest possible entry is a single byte (an empty string).
+    while (decode_pos < (int)offset) {
+        const uint8_t length = buffer[decode_pos++];
+        if (decode_pos + length > (int)offset)
+            break;
         if (const_strs_pos == const_strs_cap) {
             const_strs_cap *= 2;
             const_strs =
                 (char **)realloc(const_strs, const_strs_cap * sizeof(char *));
         }
-        char *str = (char *)malloc(length + 1);
+        char *str = (char *)malloc((size_t)length + 1);
         if (!str)
             break;
         memcpy(str, &buffer[decode_pos], length);
         str[length] = '\0';
         decode_pos += length;
 #ifdef DEBUG
-        printf("  str[%u]: %s\n", length, str);
+        printf("  str[%d] (%u bytes): %s\n", const_strs_pos, length, str);
 #endif
         const_strs[const_strs_pos++] = str;
+    }
+    *const_strs_out = const_strs;
+}
+
+static inline bool str_ieq(const char *a, const char *b) {
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b))
+            return false;
+        ++a, ++b;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+/* Built-in functions: name -> opcode (see the executor's cases). */
+static inline int func_opcode(const char *name) {
+    if (str_ieq(name, "IS_DIR"))
+        return IS_DIR;
+    if (str_ieq(name, "TODAY"))
+        return TODAY;
+    if (str_ieq(name, "DAYS_UNTIL"))
+        return DAYS_UNTIL;
+    return -1;
+}
+
+/* Variables are already emitted as LOAD_VAR_*; constants are deferred by the
+ * compiler, so materialize them onto the stack here. */
+static inline void emit_const_val(CompileCtx *ctx, Val v) {
+    if (IS_VAR(v.type))
+        return;
+    switch (BASE_TYPE(v.type)) {
+    case STR:
+        write_byte_to_bytecode(ctx, PUSH_CONST_STR);
+        add_str_to_stack(ctx, v.as.str);
+        break;
+    case I32:
+        write_byte_to_bytecode(ctx, PUSH_CONST_I32);
+        add_i32_to_stack(ctx, v.as.i32);
+        break;
+    case YES:
+        write_byte_to_bytecode(ctx, PUSH_CONST_YES);
+        add_yes_to_stack(ctx, v.as.yes);
+        break;
+    default:
+        break;
+    }
+}
+
+static inline Val compile_func_call(CompileCtx *ctx, int opcode, Val *args,
+                                    int nargs, int symbol) {
+    switch (opcode) {
+    case IS_DIR:
+        if (nargs != 1 || BASE_TYPE(args[0].type) != STR) {
+            ctx->err = (char *)"IS_DIR expects one string path argument";
+            ctx->symbol = symbol;
+            return make_nan();
+        }
+        emit_const_val(ctx, args[0]);
+        write_byte_to_bytecode(ctx, IS_DIR);
+        return make_yes_with_type(0, V_YES);
+    case TODAY:
+        if (nargs != 0) {
+            ctx->err = (char *)"TODAY expects no arguments";
+            ctx->symbol = symbol;
+            return make_nan();
+        }
+        write_byte_to_bytecode(ctx, TODAY);
+        return make_str_with_type((char *)"", V_STR);
+    case DAYS_UNTIL:
+        if (nargs != 1 || BASE_TYPE(args[0].type) != STR) {
+            ctx->err = (char *)"DAYS_UNTIL expects one string date argument";
+            ctx->symbol = symbol;
+            return make_nan();
+        }
+        emit_const_val(ctx, args[0]);
+        write_byte_to_bytecode(ctx, DAYS_UNTIL);
+        return make_i32_with_type(0, V_I32);
+    default:
+        ctx->err = (char *)"unknown function";
+        ctx->symbol = symbol;
+        return make_nan();
     }
 }
 
@@ -896,6 +1013,38 @@ static inline Val compile_prefix(CompileCtx *ctx) {
         ts_tok_consume(ctx->ts);
         return v;
     } else if (t->kind == TOK_IDENT) {
+        const int func = func_opcode(t->text);
+        if (func >= 0) {
+            const int symbol = t->symbol;
+            ts_tok_consume(ctx->ts);
+            if (!ts_tok_match(ctx->ts, TOK_LPAREN)) {
+                ctx->err = (char *)"expected '(' after function name";
+                ctx->symbol = symbol;
+                return make_nan();
+            }
+            Val args[PRATT_MAX_ARGS];
+            int nargs = 0;
+            if (!ts_tok_check(ctx->ts, TOK_RPAREN)) {
+                for (;;) {
+                    if (nargs >= PRATT_MAX_ARGS) {
+                        ctx->err = (char *)"too many arguments";
+                        ctx->symbol = ts_tok_peek(ctx->ts)->symbol;
+                        return make_nan();
+                    }
+                    args[nargs++] = compile_expr_bp(ctx, 0);
+                    if (ctx->err)
+                        return make_nan();
+                    if (!ts_tok_match(ctx->ts, TOK_COMMA))
+                        break;
+                }
+            }
+            if (!ts_tok_match(ctx->ts, TOK_RPAREN)) {
+                ctx->err = (char *)"expected ')' after function arguments";
+                ctx->symbol = ts_tok_peek(ctx->ts)->symbol;
+                return make_nan();
+            }
+            return compile_func_call(ctx, func, args, nargs, symbol);
+        }
         SchemaCol col;
         if (!col_in_schema(t->text, &col)) {
             ctx->err = alloc_format("Unknown column: %s\n", t->text);
@@ -952,14 +1101,24 @@ static inline Val compile_prefix(CompileCtx *ctx) {
     if (is_prefix_op(t)) {
         char op[3];
         memcpy(op, t->op, sizeof(op));
+        const int symbol = t->symbol;
         ts_tok_consume(ctx->ts);
         Val x = compile_expr_bp(ctx, 11);
         if (ctx->err)
             return make_nan();
+        // Logical negation of a boolean operand needs a runtime NOT; booleans
+        // are stored as single bytes and are not "numbers".
+        if (strcmp(op, "!") == 0 && BASE_TYPE(x.type) == YES) {
+            if (IS_VAR(x.type)) {
+                write_byte_to_bytecode(ctx, NOT);
+                return make_yes_with_type(0, V_YES);
+            }
+            return make_yes(x.as.yes ? 0 : 1);
+        }
         Val r = apply_unop(op, x);
         if (r.type == NUL) {
             ctx->err = (char *)"bad unary operation";
-            ctx->symbol = t->symbol;
+            ctx->symbol = symbol;
             return make_nan();
         }
         return r;
@@ -1420,8 +1579,8 @@ int exec_instruction(Stack *stack, OpcodeStream *stream, char **const_strs,
 #endif
         os_consume(stream);
         {
-            uint32_t right = stack_pop_uint32(stack);
-            uint32_t left = stack_pop_uint32(stack);
+            int32_t right = (int32_t)stack_pop_uint32(stack);
+            int32_t left = (int32_t)stack_pop_uint32(stack);
 #ifdef DEBUG
             printf("  left: %d, right: %d\n", left, right);
 #endif
@@ -1434,8 +1593,8 @@ int exec_instruction(Stack *stack, OpcodeStream *stream, char **const_strs,
 #endif
         os_consume(stream);
         {
-            uint32_t right = stack_pop_uint32(stack);
-            uint32_t left = stack_pop_uint32(stack);
+            int32_t right = (int32_t)stack_pop_uint32(stack);
+            int32_t left = (int32_t)stack_pop_uint32(stack);
 #ifdef DEBUG
             printf("  left: %d, right: %d\n", left, right);
 #endif
@@ -1448,8 +1607,8 @@ int exec_instruction(Stack *stack, OpcodeStream *stream, char **const_strs,
 #endif
         os_consume(stream);
         {
-            uint32_t right = stack_pop_uint32(stack);
-            uint32_t left = stack_pop_uint32(stack);
+            int32_t right = (int32_t)stack_pop_uint32(stack);
+            int32_t left = (int32_t)stack_pop_uint32(stack);
 #ifdef DEBUG
             printf("  left: %d, right: %d\n", left, right);
 #endif
@@ -1462,8 +1621,8 @@ int exec_instruction(Stack *stack, OpcodeStream *stream, char **const_strs,
 #endif
         os_consume(stream);
         {
-            uint32_t right = stack_pop_uint32(stack);
-            uint32_t left = stack_pop_uint32(stack);
+            int32_t right = (int32_t)stack_pop_uint32(stack);
+            int32_t left = (int32_t)stack_pop_uint32(stack);
 #ifdef DEBUG
             printf("  left: %d, right: %d\n", left, right);
 #endif
@@ -1498,6 +1657,119 @@ int exec_instruction(Stack *stack, OpcodeStream *stream, char **const_strs,
             stack_push_byte(stack, left || right);
         }
         break;
+    case IS_DIR:
+#ifdef DEBUG
+        printf("IS_DIR:\n");
+#endif
+        os_consume(stream);
+        {
+            Value path;
+            stack_pop_val(stack, &path);
+#ifdef DEBUG
+            printf("  path: %s\n", path.str);
+#endif
+            stack_push_byte(stack, std::filesystem::is_directory(path.str));
+        }
+        break;
+    case NOT:
+#ifdef DEBUG
+        printf("NOT:\n");
+#endif
+        os_consume(stream);
+        {
+            uint8_t value = stack_pop_byte(stack);
+#ifdef DEBUG
+            printf("  value: %d\n", value);
+#endif
+            stack_push_byte(stack, !value);
+        }
+        break;
+    case EQ_YES:
+#ifdef DEBUG
+        printf("EQ_YES:\n");
+#endif
+        os_consume(stream);
+        {
+            uint8_t right = stack_pop_byte(stack);
+            uint8_t left = stack_pop_byte(stack);
+#ifdef DEBUG
+            printf("  left: %d, right: %d\n", left, right);
+#endif
+            stack_push_byte(stack, left == right);
+        }
+        break;
+    case NEQ_YES:
+#ifdef DEBUG
+        printf("NEQ_YES:\n");
+#endif
+        os_consume(stream);
+        {
+            uint8_t right = stack_pop_byte(stack);
+            uint8_t left = stack_pop_byte(stack);
+#ifdef DEBUG
+            printf("  left: %d, right: %d\n", left, right);
+#endif
+            stack_push_byte(stack, left != right);
+        }
+        break;
+    case L_STR:
+    case G_STR:
+    case LE_STR:
+    case GE_STR: {
+        const uint8_t opcode = stream->instructions[stream->pos];
+        os_consume(stream);
+        Value right;
+        stack_pop_val(stack, &right);
+        Value left;
+        stack_pop_val(stack, &left);
+        const char *l = left.str ? left.str : "";
+        const char *r = right.str ? right.str : "";
+        const int c = strcmp(l, r);
+        bool res;
+        switch (opcode) {
+        case L_STR:
+            res = c < 0;
+            break;
+        case G_STR:
+            res = c > 0;
+            break;
+        case LE_STR:
+            res = c <= 0;
+            break;
+        default:
+            res = c >= 0;
+            break;
+        }
+#ifdef DEBUG
+        printf("STR CMP: left: %s, right: %s -> %d\n", l, r, res);
+#endif
+        stack_push_byte(stack, res);
+        break;
+    }
+    case TODAY: {
+        os_consume(stream);
+        static char *today_str = NULL;
+        if (!today_str) {
+            const std::string t = today_date();
+            today_str = (char *)malloc(t.size() + 1);
+            memcpy(today_str, t.c_str(), t.size() + 1);
+        }
+        stack_push_val(stack, (Value){.str = today_str});
+        break;
+    }
+    case DAYS_UNTIL: {
+        os_consume(stream);
+        Value v;
+        stack_pop_val(stack, &v);
+        int32_t days = 0;
+        if (v.str && *v.str) {
+            int32_t d = 0;
+            if (date_to_days(v.str, d))
+                days = d - today_days();
+        }
+        stack_push_uint32(stack, (uint32_t)days);
+        break;
+    }
     case ADD_I32:
 #ifdef DEBUG
         printf("ADD_I32:\n");
