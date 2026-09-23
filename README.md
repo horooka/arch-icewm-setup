@@ -1,36 +1,54 @@
 # Nav
 
-App with shell wrapper for managing, briefing and navigating through the destinations,
+App with shell wrapper for managing, operating and navigating through the destinations,
 which are either a task or a navigation path (e.g filesystem path or url)
 
 - Usage: nav [COMMAND] [ARGS]
 
 ```
 Commands:
-  list                lists dests in interactive mode
+  list                lists dests in interactive mode, on dest click performs 'go <dest>' logic
   list <group>        lists dests of the group in interactive mode
+  list-filter <cond>  lists dests satisfying condition in interactive mode
   get <dest>          prints the path of the dest
+  get-filter <cond>   prints dest_name of the first dest satisfying condition
   brief-get <dest>    prints the brief of the dest
   note-get <dest>     prints the note of the dest
+  <com above> -       performs command with the filter compiled previously
+  <com above> <..> =  performs command without caching compiled filter
+  query <query>       allows to query the navdict into stdout
   get-startup         prints the startup command from config
 ```
 
 ## Nav file format
 
 - Destination format:
-`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num]`.
+`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num][$T dest kind]`.
 Entry required to have either dest path, brief, note path or a command to run, otherwise entry is ignored
+  - Dest kind can suit as a symbolic icon which are placed instead of bullets
+in bulleted lists of gui mode is status is present. There is some hardcoded status->symbol
+mappings (they also can be overriden)
+    - closed=`X`
+    - started=` `
+    - finished=`-`
+    - ongoing=`>`
+    - dest-kind - means prioritized return type `get <dest>` logic:
+      - `C` - command
+      - `P` - path
+      - `N` - note
+      - `B` - brief
 
 - Destination group format:
 `[<group name>, <formatting>]`. Formatting is the background and foreground colors idxs
 
 ### Settings group format
 
-Designated as `[$SETTINGS]` ini-format group, each value denotes with $S setting specifier
+Should be the first group in the file, designated as `[$SETTINGS]` ini-format group
+each value denoted with $S setting specifier
 
 - Destination fields priority:
-Specifies the `go <dest>` fields priority from higher to lower with the following
-syntax (which is also the default order)
+Specifies the `go <dest>` fields priority from higher to lower (default order
+is shown below)
 
 ```ini
 priority=$Scommand,path,note,brief
@@ -38,7 +56,7 @@ priority=$Scommand,path,note,brief
 
 - UI click response:
 Specifies the default go-mode behaviour on dest click (go / brief-go / note-go)
-with the following syntax (which is also the default option)
+(default option is shown below)
 
 ```ini
 on_click=$Sgo
@@ -50,6 +68,58 @@ Specifies the command to run on machine startup (unset on default)
 ```ini
 on_startup=$Snav list todo
 ```
+
+- Task statuses:
+Specifies status -> symbol mappings for the task statuses (default mappings
+are shown below)
+
+```ini
+task_statuses=$Sclosed=X,started=' ',finished=-,ongoing=>
+```
+
+## Shell usage
+Can be used as shell shorthands for the destinations by command substitution (e.g
+$EDITOR $(navapp note-get <dest>) for opening dest's note)
+Working shell wrapper for navapp is nav() func in ./utils/shsharedfuncs.sh
+
+- Destinations completion - completion of destinations with symbolic task status
+icon by ./utils/_nav
+
+## Query syntax
+SQL-like syntax for querying the navdict, `<cond>` args should contain only
+expression, `<query>` can use entire syntax
+
+- Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`
+- Supported funcs: `ICO`
+- Supported keywords: `SELECT`, `WHERE`, `LIMIT`
+- Columns:
+  - `dest` - dest name
+  - `path` - dest path
+  - `brief` - dest brief
+  - `command` - dest command
+  - `group` - group name of the dest
+  - `level` - dest priority level
+  - `format` - dest formatting
+  - `status` - dest status
+
+### Compilation
+All the filtering commands implemented using stack machine filtering, for instance,
+`nav list <group>` is just shorthand for `nav list-filter "group = '<group>'"`,
+so all the filtering commands emits opcodes and can reuse them
+
+- Last compiled opcode is stored by default in `~/.cache/nav/opcode.bin`
+and can be reused by passing "-" argument for filtering commands
+
+- It is possible to provide additional "=" argument to the filtering command
+to avoid caching opcode
+
+### Examples
+
+- `nav list-filter "group = 'todo' && priority > 0"` - to interactively list
+prioritized todo destinations
+
+- `nav query "SELECT dest, level WHERE group = 'todo'
+&& level > 0"` - to query prioritized todo destinations
 
 # XTemplate
 

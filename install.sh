@@ -34,7 +34,7 @@ mkdir -p "$HOME/.config/systemd/user"
 # ============================================================================
 # ~/.config/icewm/preferences can be overriden by /usr/share/icewm/preferences
 # ============================================================================
-for i in icewm nvim xtemplate.d utils/zshsharedfuncs.sh utils/startup.service; do
+for i in icewm nvim xtemplate.d utils/shsharedfuncs.sh utils/startup.service; do
   src="$i"
   src_base="$(basename "$src")"
   if [[ $i == utils/startup.service ]]; then
@@ -122,6 +122,8 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/too
 git clone https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
 sudo cp MesloLGSNerdFont-Regular.ttf /usr/share/fonts
 chsh -s /usr/bin/zsh
+mkdir -p "$HOME/.oh-my-zsh/completions"
+cp utils/_nav "$HOME/.oh-my-zsh/completions/"
 
 # ===============
 # === secrets ===
