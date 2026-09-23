@@ -1,5 +1,5 @@
 _get_projects() {
-  local cache="$HOME/.cache/nav/projects.txt"
+  local cache="$HOME/.cache/nav/dests.txt"
   local cache_age=60
   local mtime
   mkdir -p "${cache:h}" 2>/dev/null
@@ -15,25 +15,40 @@ _get_projects() {
   cat "$cache" 2>/dev/null
 }
 
+# Escape a literal string so EXTENDED_GLOB treats it as match-all text.
+_nav_glob_escape() {
+  setopt localoptions extendedglob
+  local s=$1
+  s=${s//(#m)[\\*?\[\]()<>|#~^=]/\\$MATCH}
+  print -r -- "$s"
+}
+
 _nav() {
-  local -a display values
-  local line icon value
+  local -a display values specs
+  local sgr disp value esc
 
-  while IFS= read -r line; do
-    [[ -z $line ]] && continue
-
-    icon=${line[1,3]}
-    value=${line[5,-1]}
-
-    display+=( "$icon $value" )
+  # dests-list emits "<sgr>\t<display>\t<value>". The display is shown and the
+  # value is what gets inserted; coloring is handed to zsh's list-colors so it
+  # stays aligned (raw ANSI in display strings counts as visible width).
+  while IFS=$'\t' read -r sgr disp value; do
+    [[ -z $value ]] && continue
+    display+=( "$disp" )
     values+=( "$value" )
+    if [[ -n $sgr && $sgr != - ]]; then
+      esc=$(_nav_glob_escape "$disp")
+      specs+=( "=${esc}=${sgr}" )
+    fi
   done < <(_get_projects)
+
+  if (( $#specs )); then
+    zstyle ':completion:*:*:nav:*' list-colors "${specs[@]}"
+  fi
 
   if (( CURRENT == 2 )); then
     _describe 'project' display values
   elif (( CURRENT == 3 )); then
     case $words[2] in
-      go|brief-go|note-go)
+      go|brief|note|brief-go|note-go)
         _describe 'project' display values
         ;;
       *)

@@ -43,7 +43,7 @@ run_go() {
     ;;
   3)
     MESSAGE "$output_go"
-    return $rc
+    return $?
     ;;
   4)
     eval $output_go
@@ -70,7 +70,7 @@ run_go_filter() {
     ;;
   3)
     MESSAGE "$output_go_filter"
-    return $rc
+    return $?
     ;;
   4)
     eval $output_go_filter
@@ -87,17 +87,20 @@ nav() {
   if [[ -z $1 ]]; then
     echo "Usage: nav [COMMAND] [ARGS]\n"
     echo "Commands:"
-    echo "  list                lists dests in interactive mode, on dest click performs 'go <dest>' logic"
-    echo "  list <group>        lists dests of group in interactive mode"
-    echo "  list-filter <cond>  lists dests satisfying condition in interactive mode"
+    echo "  list                lists dests"
+    echo "  list <group>        lists dests of the group"
+    echo "  list-filter <cond>  lists dests satisfying condition"
     echo "  go <dest>           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
+    echo "  brief <dest>        performs brief opening on dest"
+    echo "  note <dest>         performs note opening on dest"
     echo "  brief-go <dest>     displays brief note and performs go"
     echo "  note-go <dest>      displays note and performs go"
     echo "  go-filter <cond>    performs go on first dest satisfying condition"
-    echo "  <com above> -       performs command with the filter compiled previously"
-    echo "  <com above> <..> =  performs command without caching compiled opcode"
-    echo "  query <query>       allows to query the navdict into stdout"
-    echo "  dests-list          lists destinations separated by newlines, used by shell completion"
+    echo "  <com above> -c      performs command with the filter compiled previously"
+    echo "  <com above> <..> -s performs command without caching compiled opcode"
+    echo "  query <query> [-f]  allows to query the navdict into stdout ([-f] adds the field header)"
+    echo "  dates [opts]        lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
+    echo "  dests-list          emits dests for shell completion (color params, display, value)"
     echo "  edit                opens navdict.ini"
     echo "  <dest>              gives a path to a dest"
     return 1
@@ -105,35 +108,21 @@ nav() {
 
   case $1 in
   dests-list)
-    navapp dests-list
-    return 0
+    navapp dests-list "${@:2}"
+    return $?
     ;;
   list | list-filter)
-    dest_name="$(navapp ${@:1})"
-    rc=$?
-    case $rc in
-    100)
-      run_go "$dest_name"
-      ;;
-    101)
-      run_brief_go "$dest_name"
-      run_go "$dest_name"
-      ;;
-    102)
-      run_note_go "$dest_name"
-      run_go "$dest_name"
-      ;;
-    esac
+    navapp "${@:1}"
     return $?
     ;;
   startup)
     output="$(navapp get-startup 2>&1)"
     rc=$?
     if [[ $rc -eq 0 ]]; then
-      eval "$output"
+      MESSAGE "$(eval "$output")"
       return 0
     else
-      echo "ERROR: on_startup setting is not provided"
+      echo "ERROR: "on_startup" setting is not provided"
       return $rc
     fi
     ;;
@@ -151,6 +140,21 @@ nav() {
       ;;
     esac
     run_go "${@:2}"
+    return $?
+    ;;
+  note | brief)
+    if [[ -z $2 ]]; then
+      echo "Usage: $1 <dest>"
+      return 1
+    fi
+    case $1 in
+    brief)
+      run_brief_go "${@:2}"
+      ;;
+    note)
+      run_note_go "${@:2}"
+      ;;
+    esac
     return $?
     ;;
   go-filter)
@@ -173,12 +177,16 @@ nav() {
     output="$(navapp query "${@:2}" 2>&1)"
     rc=$?
     if [[ $rc -eq 0 ]]; then
-      echo "$output"
+      [[ -n "$output" ]] && echo "$output"
       return 0
     else
       echo "ERROR: $output"
       return $rc
     fi
+    ;;
+  dates)
+    navapp dates "${@:2}"
+    return $?
     ;;
   esac
   output="$(navapp get "${@:1}" 2>&1)"

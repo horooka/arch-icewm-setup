@@ -93,7 +93,7 @@ carry() {
 }
 
 mkzip_chsum() {
-  local dir="$1" zipfile="$2"
+  local dir="${1:-i1}" zipfile="${2:-i1.zip}"
   (
     cd "$dir"
     find . -type f ! -name "checksums.sha256" -print0 \
@@ -113,6 +113,41 @@ unzip_chsum() {
   } always {
     rm -rf -- "$tmp"
   }
+}
+
+chsum() {
+  local outdir="${1:-.}"
+  [[ -d "$outdir" ]] || {
+    echo "Not a directory: $outdir"
+    return 1
+  }
+  [[ -f "$outdir/checksums.sha256" ]] || {
+    echo "Checksums file not found: $outdir/checksums.sha256"
+    return 1
+  }
+  ( cd -- "$outdir" && sha256sum -c checksums.sha256 )
+}
+
+diff_dirs() {
+  left=${1:?Usage: compare-dirs LEFT_DIR RIGHT_DIR}
+  right=${2:?Usage: compare-dirs LEFT_DIR RIGHT_DIR}
+  if [[ ! -d "$left" || ! -d "$right" ]]; then
+    printf 'Both arguments must be directories.\n' >&2
+    exit 2
+  fi
+  left=${left%/}
+  right=${right%/}
+  find "$left" -type f -print0 |
+  while IFS= read -r -d '' left_file; do
+      relative=${left_file#"$left"/}
+      right_file="$right/$relative"
+      if [[ ! -f "$right_file" ]]; then
+          printf 'Only in left: %s\n' "$relative"
+      elif ! cmp -s -- "$left_file" "$right_file"; then
+          printf '\nDifferences in: %s\n' "$relative"
+          diff -u -- "$left_file" "$right_file"
+      fi
+  done
 }
 
 aes128() {
@@ -153,6 +188,7 @@ cmk () {
       echo "  gdb    gdb run"
       echo "  hck    heaptrack run"
       echo "  ccs    rebuild compile_commands.json"
+      echo "  test   run conf-test"
       return 1
     fi
 
@@ -185,6 +221,20 @@ cmk () {
           cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 -S .. && \
           cd .. && \
           cp build/compile_commands.json .
+        ;;
+      test)
+        (
+          cmake -S . -B build -DTESTS=ON -DPREFIX_PATH=/opt/conf-tester || exit 1
+          cmake --build build || exit 1
+
+          rc=0
+          for t in build/tests/test_*(N); do
+              [ -x "$t" ] || continue
+              echo "==> $t"
+              "$t" || rc=1
+          done
+          exit $rc
+        )
         ;;
       *)
         print "Unknown command: $1"
@@ -250,3 +300,5 @@ mic() {
 }
 
 source "$HOME/.config/shsharedfuncs.sh"
+
+. "$HOME/.local/bin/env"
