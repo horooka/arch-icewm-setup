@@ -168,23 +168,23 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
             ++i;
             continue;
         }
-        const char kind = line[i + 1];
+        const char spec = line[i + 1];
         unsigned char id = 7;
-        if (kind == 'P')
+        if (spec == 'P')
             id = 0;
-        else if (kind == 'B')
+        else if (spec == 'B')
             id = 1;
-        else if (kind == 'N')
+        else if (spec == 'N')
             id = 2;
-        else if (kind == 'C')
+        else if (spec == 'C')
             id = 3;
-        else if (kind == 'L')
+        else if (spec == 'L')
             id = 4;
-        else if (kind == 'F')
+        else if (spec == 'F')
             id = 5;
-        else if (kind == 'K')
+        else if (spec == 'M')
             id = 6;
-        else if (kind == 'S')
+        else if (spec == 'S')
             id = 7;
         if (id != 8) {
             specifiers.push_back({id, i});
@@ -200,14 +200,14 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
 std::pair<unsigned char, unsigned char>
 parse_dest_line(const std::string &line, std::string &dest_name,
                 std::string &path, std::string &brief, std::string &note_path,
-                std::string &dest_kind, std::string &command,
+                std::string &dest_mark, std::string &command,
                 std::string &errors) {
     std::pair<unsigned char, unsigned char> ret = {0, 0};
     dest_name.clear();
     path.clear();
     brief.clear();
     note_path.clear();
-    dest_kind.clear();
+    dest_mark.clear();
     command.clear();
     size_t split_pos = line.find('=');
     if (split_pos == std::string::npos) {
@@ -262,7 +262,7 @@ parse_dest_line(const std::string &line, std::string &dest_name,
             }
             break;
         case 6:
-            dest_kind = content;
+            dest_mark = content;
             break;
         case 7:
             path = content;
@@ -401,7 +401,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             decode_const_pool(const_strs, (uint8_t *)ctx->const_pool, offset);
         }
     }
-    std::string dest, dest_path, brief, note_path, dest_kind, command;
+    std::string dest, dest_path, brief, note_path, dest_mark, command;
     std::optional<std::streampos> prev_line;
     bool settings_found = false;
     // Util groups
@@ -433,7 +433,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             continue;
         }
         const auto formatting_priority =
-            parse_dest_line(line, dest, dest_path, brief, note_path, dest_kind,
+            parse_dest_line(line, dest, dest_path, brief, note_path, dest_mark,
                             command, errors);
         if (dest.empty())
             continue;
@@ -450,53 +450,52 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                 settings.on_startup = dest_path;
                 if (MBASE(mode) == M_STARTUP)
                     return 0;
-            } else if (dest == "statuses") {
+            } else if (dest == "marks_map") {
                 std::vector<std::string> mappings = split_by_comma(dest_path);
                 for (const std::string &map_pair : mappings) {
                     const auto iter =
                         std::find(map_pair.begin(), map_pair.end(), '=');
                     if (iter == map_pair.end()) {
                         errors +=
-                            "Invalid status mapping: \"" + map_pair + "\"\n";
+                            "Invalid mark mapping: \"" + map_pair + "\"\n";
                         continue;
                     }
-                    std::string status =
+                    std::string mark =
                         map_pair.substr(0, iter - map_pair.begin());
-                    trim(status);
-                    std::string status_symbol =
+                    trim(mark);
+                    std::string mark_symbol =
                         map_pair.substr(iter - map_pair.begin() + 1);
-                    trim(status_symbol);
-                    if (status_symbol.size() > 1) {
-                        if (status_symbol.size() == 3 &&
-                            status_symbol[0] == '\'' &&
-                            status_symbol[2] == '\'') {
-                            status_symbol = status_symbol.substr(1, 2);
+                    trim(mark_symbol);
+                    if (mark_symbol.size() > 1) {
+                        if (mark_symbol.size() == 3 && mark_symbol[0] == '\'' &&
+                            mark_symbol[2] == '\'') {
+                            mark_symbol = mark_symbol.substr(1, 2);
                         } else {
                             errors += "Map is longer than 1 symbol: \"" +
                                       map_pair + "\"\n";
                             continue;
                         }
                     }
-                    for (size_t i = 0; i < settings.status_to_symbol_map.size();
+                    for (size_t i = 0; i < settings.mark_to_symbol_map.size();
                          ++i) {
-                        if (settings.status_to_symbol_map[i].first == status) {
+                        if (settings.mark_to_symbol_map[i].first == mark) {
                             const std::string &existing_symbol =
-                                settings.status_to_symbol_map[i].first;
+                                settings.mark_to_symbol_map[i].first;
                             if (existing_symbol != "opened" &&
                                 existing_symbol != "closed" &&
                                 existing_symbol != "finished" &&
                                 existing_symbol != "ongoing") {
-                                errors += "Duplicate status mapping: \"" +
-                                          status + "\"\n";
+                                errors += "Duplicate mark mapping: \"" + mark +
+                                          "\"\n";
                                 continue;
                             }
-                            settings.status_to_symbol_map[i].second =
-                                status_symbol[0];
+                            settings.mark_to_symbol_map[i].second =
+                                mark_symbol[0];
                             continue;
                         }
                     }
-                    settings.status_to_symbol_map.push_back(
-                        std::make_pair(status, status_symbol[0]));
+                    settings.mark_to_symbol_map.push_back(
+                        std::make_pair(mark, mark_symbol[0]));
                 }
             }
             continue;
@@ -530,7 +529,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             continue;
         }
         const auto formatting_priority =
-            parse_dest_line(line, dest, dest_path, brief, note_path, dest_kind,
+            parse_dest_line(line, dest, dest_path, brief, note_path, dest_mark,
                             command, errors);
         if (dest.empty())
             continue;
@@ -544,7 +543,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                             brief,
                             note_path,
                             command,
-                            dest_kind,
+                            dest_mark,
                             curr_group_name,
                             displayed_lines,
                             formatting_priority.second};

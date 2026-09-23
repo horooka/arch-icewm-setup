@@ -23,7 +23,7 @@ struct Settings {
          */
         unsigned char on_click = 0;
         std::string on_startup = "";
-        std::vector<std::pair<std::string, char>> status_to_symbol_map = {
+        std::vector<std::pair<std::string, char>> mark_to_symbol_map = {
             {"opened", ' '},
             {"closed", 'X'},
             {"finished", '-'},
@@ -37,7 +37,7 @@ struct Dest {
         std::string brief = "";
         std::string note_path = "";
         std::string command = "";
-        std::string dest_kind = "";
+        std::string dest_mark = "";
         std::string group_name = "";
         std::vector<std::string> displayed_lines;
         unsigned char level = 0;

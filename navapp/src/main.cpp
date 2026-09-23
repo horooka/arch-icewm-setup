@@ -33,12 +33,12 @@ static char *alloc_format(const char *fmt, ...) {
     return result;
 }
 
-char status_to_symbol(const Dest &dest) {
-    for (const auto status_to_symbol_map : settings.status_to_symbol_map) {
-        if (status_to_symbol_map.first == dest.dest_kind)
-            return status_to_symbol_map.second;
+char mark_to_symbol(const Dest &dest) {
+    for (const auto mark_to_symbol_map : settings.mark_to_symbol_map) {
+        if (mark_to_symbol_map.first == dest.dest_mark)
+            return mark_to_symbol_map.second;
     }
-    if (dest.dest_kind == "dest-kind") {
+    if (dest.dest_mark == "dest") {
         for (const std::string &field : settings.fields_priority) {
             if (field == "command") {
                 if (!dest.command.empty())
@@ -177,10 +177,10 @@ int main(int argc, char **argv) {
                 return 1;
             }
             for (const auto &dest : dests) {
-                if (dest.dest_kind.empty()) {
+                if (dest.dest_mark.empty()) {
                     printf(" -  %s\n", dest.dest_name.c_str());
                 } else {
-                    printf("[%c] %s\n", status_to_symbol(dest),
+                    printf("[%c] %s\n", mark_to_symbol(dest),
                            dest.dest_name.c_str());
                 }
             }
@@ -299,10 +299,10 @@ int main(int argc, char **argv) {
             UISpacerCreate(&panel_dests->e, 0, 0, 5);
         }
         char *dest_str = NULL;
-        if (dest.dest_kind.empty()) {
+        if (dest.dest_mark.empty()) {
             dest_str = alloc_format("   -  %s", dest.dest_name.c_str());
         } else {
-            dest_str = alloc_format("  [%c] %s", status_to_symbol(dest),
+            dest_str = alloc_format("  [%c] %s", mark_to_symbol(dest),
                                     dest.dest_name.c_str());
         }
         UILabel *dest_label =

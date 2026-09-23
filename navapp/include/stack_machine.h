@@ -67,7 +67,7 @@ typedef struct {
 static const SchemaCol schema_cols[] = {
     {"dest", STR, 0},  {"path", STR, 1},    {"brief", STR, 2},
     {"note", STR, 3},  {"command", STR, 4}, {"group", STR, 5},
-    {"level", I32, 6}, {"format", I32, 7},  {"status", STR, 8}};
+    {"level", I32, 6}, {"format", I32, 7},  {"kind", STR, 8}};
 
 static char *alloc_format(const char *fmt, ...) {
     va_list args;
@@ -175,7 +175,7 @@ bool get_col_ptr(Dest *dest, unsigned char idx, ValUnion *val_out) {
         val_out->i32 = dest->formatting;
         return true;
     case 8:
-        val_out->str = dest->dest_kind.data();
+        val_out->str = dest->dest_mark.data();
         return true;
     default:
 #ifdef DEBUG

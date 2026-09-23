@@ -23,16 +23,17 @@ Commands:
 ## Nav file format
 
 - Destination format:
-`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num][$T dest kind]`.
-Entry required to have either dest path, brief, note path or a command to run, otherwise entry is ignored
-  - Dest kind can suit as a symbolic icon which are placed instead of bullets
-in bulleted lists of gui mode is status is present. There is some hardcoded status->symbol
+`<destinatinon name> = [$P<destination path>][$B<task brief>][$N<task note path>][$C<command to run>][$L<priority level>][$F formatting num][$M dest mark]`.
+Entry required to have either dest path, brief, note path or a command to run,
+otherwise entry is ignored
+  - Dest mark is a symbolic icon which are placed instead of bullets in bulleted
+lists of gui mode or tab-completion if mark is presented. There is some hardcoded
 mappings (they also can be overriden)
     - closed=`X`
     - started=` `
     - finished=`-`
     - ongoing=`>`
-    - dest-kind - means prioritized return type `get <dest>` logic:
+    - dest - displays prioritized return type of `get <dest>` logic:
       - `C` - command
       - `P` - path
       - `N` - note
@@ -69,12 +70,11 @@ Specifies the command to run on machine startup (unset on default)
 on_startup=$Snav list todo
 ```
 
-- Task statuses:
-Specifies status -> symbol mappings for the task statuses (default mappings
-are shown below)
+- Dest marks mappings:
+Specifies mark -> symbol mappings (default ones are shown below)
 
 ```ini
-task_statuses=$Sclosed=X,started=' ',finished=-,ongoing=>
+marks_map=$Sclosed=X,started=' ',finished=-,ongoing=>
 ```
 
 ## Shell usage
@@ -82,8 +82,8 @@ Can be used as shell shorthands for the destinations by command substitution (e.
 $EDITOR $(navapp note-get <dest>) for opening dest's note)
 Working shell wrapper for navapp is nav() func in ./utils/shsharedfuncs.sh
 
-- Destinations completion - completion of destinations with symbolic task status
-icon by ./utils/_nav
+- Destinations completion - completion of destinations with symbolic destination mark
+icon by `./utils/_nav`
 
 ## Query syntax
 SQL-like syntax for querying the navdict, `<cond>` args should contain only
@@ -100,7 +100,7 @@ expression, `<query>` can use entire syntax
   - `group` - group name of the dest
   - `level` - dest priority level
   - `format` - dest formatting
-  - `status` - dest status
+  - `mark` - dest mark
 
 ### Compilation
 All the filtering commands implemented using stack machine filtering, for instance,
@@ -115,11 +115,11 @@ to avoid caching opcode
 
 ### Examples
 
-- `nav list-filter "group = 'todo' && priority > 0"` - to interactively list
-prioritized todo destinations
+- `nav list-filter "group = 'todo' && priority > 0 && mark = 'suspended'"` - to
+interactively list prioritized todo destinations with suspended mark
 
-- `nav query "SELECT dest, level WHERE group = 'todo'
-&& level > 0"` - to query prioritized todo destinations
+- `nav query "SELECT dest, level WHERE group = 'todo' && level > 0 && mark = 
+'suspended'"` - to query prioritized todo destinations with suspended mark
 
 # XTemplate
 
