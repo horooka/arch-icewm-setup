@@ -389,6 +389,76 @@ static int cmd_dates(Ctx &ctx) {
 }
 
 // ============================================================================
+//                                   EDIT
+// ============================================================================
+
+static int cmd_edit_dest(Ctx &ctx) {
+    DestQuery q;
+    if (!parse_dest_query(ctx, false, q))
+        return 1;
+    if (load(ctx, q.filter.c_str(), MCOMPOSERAW(M_FIRST, q.cached, q.silent),
+             "Parse errors:\n"))
+        return 1;
+    return edit_dest(ctx.navdict, ctx.dests[0]);
+}
+
+static int cmd_edit_group(Ctx &ctx) {
+    if (ctx.argc < 3) {
+        std::cerr << "Usage: edit-group <group>\n";
+        return 1;
+    }
+    return edit_group(ctx.navdict, ctx.argv[2]);
+}
+
+static int cmd_add(Ctx &ctx) {
+    if (ctx.argc < 3) {
+        std::cerr << "Usage: add <group> [dest line]\n";
+        return 1;
+    }
+    std::string hint;
+    for (int i = 3; i < ctx.argc; i++) {
+        if (!hint.empty())
+            hint += ' ';
+        hint += ctx.argv[i];
+    }
+    return add_dest(ctx.navdict, ctx.argv[2], hint);
+}
+
+static int cmd_rm(Ctx &ctx) {
+    const char *dest_arg = nullptr;
+    bool force = false, cached = false, silent = false;
+    for (int i = 2; i < ctx.argc; i++) {
+        if (std::strcmp(ctx.argv[i], "-f") == 0 ||
+            std::strcmp(ctx.argv[i], "--force") == 0)
+            force = true;
+        else if (std::strcmp(ctx.argv[i], "-c") == 0)
+            cached = true;
+        else if (std::strcmp(ctx.argv[i], "-s") == 0)
+            silent = true;
+        else if (!dest_arg)
+            dest_arg = ctx.argv[i];
+        else {
+            std::cerr << "Unknown option: " << ctx.argv[i] << "\n";
+            return 1;
+        }
+    }
+    if (!dest_arg && !cached) {
+        std::cerr << "Usage: rm <dest> [-f] [-c|-s]\n";
+        return 1;
+    }
+    std::string filter_storage;
+    if (dest_arg)
+        filter_storage = std::string("dest = '") + dest_arg + "'";
+    // With -c the contents are unused; keep it non-NULL to take the cached path.
+    if (!dest_arg && cached)
+        filter_storage = "";
+    if (load(ctx, filter_storage.c_str(),
+             MCOMPOSE(M_FIRST, cached, silent), "Parse errors:\n"))
+        return 1;
+    return remove_dest(ctx.navdict, ctx.dests[0], force);
+}
+
+// ============================================================================
 //                                 DISPATCH
 // ============================================================================
 
@@ -403,34 +473,45 @@ static const Command commands[] = {
     {"dates", cmd_dates},
     {"dests-list", cmd_dests_list},
     {"get-startup", cmd_get_startup},
+    {"edit", cmd_edit_dest},
+    {"edit-group", cmd_edit_group},
+    {"add", cmd_add},
+    {"rm", cmd_rm},
 };
 
 static int print_usage() {
     std::cout << "Usage: navapp <command> <arg>\n\n"
                  "Commands:\n"
-                 "  list                     lists dests\n"
-                 "  list <group>             lists dests of the group\n"
-                 "  list-filter <cond>       lists dests satisfying "
+                 "  list [<group>] [-c|-s]           lists dests (of the "
+                 "group)\n"
+                 "  list-filter <cond> [-c|-s]       lists dests satisfying "
                  "condition\n"
-                 "  get <dest> [args]        prints the path of the dest with"
-                 " args expanded\n"
-                 "  get-filter <cond>        prints dest_name of the first"
-                 " dest satisfying condition\n"
-                 "  brief-get <dest> [args]  prints the brief of the "
+                 "  get <dest> [args] [-c|-s]        prints the path of the "
+                 "dest with args expanded\n"
+                 "  get-filter <cond> [-c|-s]        prints dest_name of the "
+                 "first dest satisfying condition\n"
+                 "  brief-get <dest> [args] [-c|-s]  prints the brief of the "
                  "dest\n"
-                 "  note-get <dest> [args]   prints the note of the dest\n"
-                 "  <com above> -c           performs command with the filter "
-                 "compiled previously\n"
-                 "  <com above> <..> -s      performs command without caching "
-                 "compiled filter\n"
-                 "  query <query> [-f]       allows to query the navdict "
-                 "into stdout ([-f] adds the field header)\n"
-                 "  get-startup              prints the startup command "
+                 "  note-get <dest> [args] [-c|-s]   prints the note of the "
+                 "dest\n"
+                 "  edit <dest> [-c|-s]              edits a dest line in "
+                 "place (readline, prefilled)\n"
+                 "  rm <dest> [-f] [-c|-s]           removes a dest "
+                 "(confirmation unless -f)\n"
+                 "  query <query> [-f]               allows to query the "
+                 "navdict into stdout ([-f] adds the field header)\n"
+                 "  get-startup                      prints the startup command "
                  "from config\n"
-                 "  dates [--upcoming [N]]   lists dests with dates sorted by "
-                 "date\n"
-                 "                           (also --past, --reverse, --all, "
-                 "--limit N)\n"
+                 "  dates [--upcoming [N]]           lists dests with dates "
+                 "sorted by date (also --past, --reverse, --all, --limit N)\n"
+                 "  edit-group <group>               edits a group body in "
+                 "$EDITOR\n"
+                 "  add <group> [line]               appends a dest line to a "
+                 "group\n"
+                 "\n"
+                 "Flags:\n"
+                 "  -c  reuse the previously compiled filter\n"
+                 "  -s  compile the filter but do not cache it\n"
               << std::endl;
     return 0;
 }

@@ -57,7 +57,7 @@ run_go() {
 }
 
 run_go_filter() {
-  output_go_filter="$(navapp get-filter "$1" 2>&1)"
+  output_go_filter="$(navapp get-filter "$@" 2>&1)"
   rc_go_filter=$?
   case $rc_go_filter in
   0)
@@ -87,22 +87,27 @@ nav() {
   if [[ -z $1 ]]; then
     echo "Usage: nav [COMMAND] [ARGS]\n"
     echo "Commands:"
-    echo "  list                lists dests"
-    echo "  list <group>        lists dests of the group"
-    echo "  list-filter <cond>  lists dests satisfying condition"
-    echo "  go <dest>           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
-    echo "  brief <dest>        performs brief opening on dest"
-    echo "  note <dest>         performs note opening on dest"
-    echo "  brief-go <dest>     displays brief note and performs go"
-    echo "  note-go <dest>      displays note and performs go"
-    echo "  go-filter <cond>    performs go on first dest satisfying condition"
-    echo "  <com above> -c      performs command with the filter compiled previously"
-    echo "  <com above> <..> -s performs command without caching compiled opcode"
-    echo "  query <query> [-f]  allows to query the navdict into stdout ([-f] adds the field header)"
-    echo "  dates [opts]        lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
-    echo "  dests-list          emits dests for shell completion (color params, display, value)"
-    echo "  edit                opens navdict.ini"
-    echo "  <dest>              gives a path to a dest"
+    echo "  list [<group>] [-c|-s]      lists dests"
+    echo "  list-filter <cond> [-c|-s]  lists dests satisfying condition"
+    echo "  go <dest> [-c|-s]           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
+    echo "  brief <dest> [-c|-s]        performs brief opening on dest"
+    echo "  note <dest> [-c|-s]         performs note opening on dest"
+    echo "  brief-go <dest> [-c|-s]     displays brief note and performs go"
+    echo "  note-go <dest> [-c|-s]      displays note and performs go"
+    echo "  go-filter <cond> [-c|-s]    performs go on first dest satisfying condition"
+    echo "  edit <dest> [-c|-s]         edits a dest line in place (readline, prefilled)"
+    echo "  rm <dest> [-f] [-c|-s]      removes a dest (asks for confirmation; -f skips)"
+    echo "  add <group> [line]          appends a dest line to the group"
+    echo "  edit-group <group>          edits a group body in \$EDITOR"
+    echo "  edit-dict                   opens navdict.ini"
+    echo "  query <query> [-f]          allows to query the navdict into stdout ([-f] adds the field header)"
+    echo "  dates [opts]                lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
+    echo "  dests-list                  emits dests for shell completion (color params, display, value)"
+    echo "  <dest>                      gives a path to a dest"
+    echo ""
+    echo "Flags:"
+    echo "  -c  reuse the previously compiled filter"
+    echo "  -s  compile the filter but do not cache it"
     return 1
   fi
 
@@ -165,7 +170,23 @@ nav() {
     run_go_filter "${@:2}"
     return $?
     ;;
+  add)
+    navapp add "${@:2}"
+    return $?
+    ;;
+  rm)
+    navapp rm "${@:2}"
+    return $?
+    ;;
   edit)
+    navapp edit "${@:2}"
+    return $?
+    ;;
+  edit-group)
+    navapp edit-group "${@:2}"
+    return $?
+    ;;
+  edit-dict)
     $EDITOR ~/.config/navdict.ini
     return 0
     ;;

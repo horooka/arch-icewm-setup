@@ -9,9 +9,12 @@
 #define M_STARTUP 1
 #define M_FIRST 2
 #define MCOMPOSE(x, cached, silent) (x | (cached ? 128 : 0) | (silent ? 64 : 0))
+#define MCOMPOSERAW(x, cached, silent)                                         \
+    (x | (cached ? 128 : 0) | (silent ? 64 : 0) | 32)
 #define MCACHED(x) ((x & 128) == 128)
 #define MSILENT(x) ((x & 64) == 64)
-#define MBASE(x) (x & 63)
+#define MRAW(x) ((x & 32) == 32)
+#define MBASE(x) (x & 31)
 
 struct Settings {
         std::array<std::string, 4> fields_priority = {"command", "path", "note",
@@ -96,5 +99,11 @@ unsigned char go(const Dest &dest, std::string &field_out,
 unsigned char go(const Dest &dest, std::string &field_out,
                  const std::array<std::string, 4> &fields_priority,
                  const std::vector<std::string> &args);
+
+int edit_dest(const std::string &file_path, Dest &dest);
+int edit_group(const std::string &file_path, const std::string &group_name);
+int add_dest(const std::string &file_path, const std::string &group_name,
+             const std::string &line_hint);
+int remove_dest(const std::string &file_path, const Dest &dest, bool force);
 
 void fields_used(const Dest &dest, std::string &fields_used);

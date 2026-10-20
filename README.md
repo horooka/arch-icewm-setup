@@ -3,24 +3,29 @@
 ## Nav
 
 App with shell wrapper for managing, operating and navigating through the destinations,
-which are either a task or a navigation path (filesystem path, url, command)
+which are either a task or a navigation path (filesystem path, url, command), or all together
 
 - Usage: navapp [COMMAND] [ARGS]
 
 ```
 Commands:
-  list                     lists dests
-  list <group>             lists dests of the group
-  list-filter <cond>       lists dests satisfying condition
-  get <dest> [args]        prints the path of the dest with args expanded
-  get-filter <cond>        prints dest_name of the first dest satisfying condition
-  brief-get <dest> [args]  prints the brief of the dest
-  note-get <dest> [args]   prints the note of the dest
-  <com above> -c           performs command with the filter compiled previously
-  <com above> <..> -s      performs command without caching compiled filter
-  query <query> [-f]       allows to query the navdict into stdout ([-f] adds the field header)
-  get-startup              prints the startup command from config
-  dates [--upcoming [N]]   lists dests with dates, sorted by date (also --past, --reverse, --all, --limit N)
+  list [<group>] [-c|-s]           lists dests (of the group)
+  list-filter <cond> [-c|-s]       lists dests satisfying condition
+  get <dest> [args] [-c|-s]        prints the path of the dest with args expanded
+  get-filter <cond> [-c|-s]        prints dest_name of the first dest satisfying condition
+  brief-get <dest> [args] [-c|-s]  prints the brief of the dest
+  note-get <dest> [args] [-c|-s]   prints the note of the dest
+  edit <dest> [-c|-s]              edits a dest line in place (readline, prefilled)
+  rm <dest> [-f] [-c|-s]           removes a dest (asks for confirmation unless -f)
+  query <query> [-f]               allows to query the navdict into stdout ([-f] adds the field header)
+  get-startup                      prints the startup command from config
+  dates [--upcoming [N]]           lists dests with dates, sorted by date (also --past, --reverse, --all, --limit N)
+  edit-group <group>               edits a group body in $EDITOR
+  add <group> [line]               appends a dest line to a group (prompts if no line)
+
+Flags:
+  -c  reuse the previously compiled filter
+  -s  compile the filter but do not cache it
 ```
 
 ### Nav file format
@@ -86,6 +91,22 @@ Specifies mark -> symbol mappings (default ones are shown below)
 ```ini
 marks_map=@Sclosed=X,started=' ',finished=-,ongoing=>
 ```
+
+### Writing to the navdict
+
+`edit`, `rm`, `add` and `edit-group` rewrite `~/.config/navdict.ini` in place:
+
+- `edit <dest> [-c|-s]` — edits one dest line with readline, prefilled with the
+  current line. Like the filtering commands, `-c` reuses the previously compiled
+  filter and `-s` avoids caching the new one.
+- `rm <dest> [-f] [-c|-s]` — removes the matching dest after a `[y/N]`
+  confirmation (`-f` skips it); same `-c`/`-s` semantics.
+- `add <group> [line]` — appends a dest line (prompts when no line is given).
+- `edit-group <group>` — edits the group body in `$EDITOR`.
+
+Writes go to a temporary file that is renamed over the navdict, so an
+interrupted write never leaves a truncated file. Comments, blank lines and
+ordering are preserved.
 
 ### Shell usage
 Can be used as shell shorthands for the destinations by command substitution (e.g
