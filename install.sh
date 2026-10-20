@@ -30,9 +30,7 @@ echo "=== .config ==="
 echo "===============\n\n"
 mkdir -p "$HOME/.config"
 mkdir -p "$HOME/.config/systemd/user"
-# ============================================================================
-# ~/.config/icewm/preferences can be overriden by /usr/share/icewm/preferences
-# ============================================================================
+# !!! ~/.config/icewm/preferences can be overriden by /usr/share/icewm/preferences
 for i in icewm nvim xtemplate.d utils/shsharedfuncs.sh utils/startup.service; do
   src="$i"
   src_base="$(basename "$src")"
@@ -57,7 +55,7 @@ echo "\n\n=================="
 echo "=== .local/bin ==="
 echo "==================\n\n"
 mkdir -p "$HOME/.local/bin/"
-for i in utils/startup.sh utils/opencode.sh utils/fork-xterm.sh; do
+for i in utils/startup.sh utils/opencode.sh utils/fork-xterm.sh utils/text-utils.sh; do
   src="$i"
   src_base="$(basename "$src")"
   dst="$HOME/.local/bin/$src_base"
@@ -131,6 +129,14 @@ echo "=== secrets ==="
 echo "===============\n\n"
 echo " - ~/.local/bin/opencode.sh needs "pass"-managed deepseek key"
 
+# =============
+# === audio ===
+# =============
+echo "\n\n============="
+echo "=== audio ==="
+echo "=============\n\n"
+sudo pacman -S pipewire pipewire-pulse pipewire-alsa wireplumber sof-firmware
+
 # ==============
 # === finish ===
 # ==============
@@ -138,11 +144,3 @@ echo "\n\n=============="
 echo "=== finish ==="
 echo "==============\n\n"
 echo "Installation is complete, make reboot"
-
-# =============
-# === audio ===
-# =============
-# echo "\n\n============="
-# echo "=== audio ==="
-# echo "=============\n\n"
-# sudo pacman -S pipewire pipewire-pulse pipewire-alsa wireplumber sof-firmware

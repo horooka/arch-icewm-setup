@@ -27,7 +27,8 @@ int main(int argc, char *argv[]) {
                              "  --xfile PATH          Xtemplate file to use\n"
                              "  --xtemplate TEXT      Xtemplate to use, "
                              "(default: last cached or stored default from "
-                             "~/.config/xtemplate.ini accordignly to their "
+                             "~/.config/xtemplate.d/xtemplate.ini accordignly "
+                             "to their "
                              "priorities)\n"
                              "  --indent INT          Additional indent for "
                              "xtemplate's bodies\n"
@@ -61,9 +62,9 @@ int main(int argc, char *argv[]) {
         }
         XTemplateConfig config;
         std::string config_path =
-            std::string(getenv("HOME")) + "/.config/xtemplate.ini";
+            std::string(getenv("HOME")) + "/.config/xtemplate.d/xtemplate.ini";
         config.default_path =
-            std::string(getenv("HOME")) + "/.config/xtemplate.txt";
+            std::string(getenv("HOME")) + "/.config/xtemplate.d/xtemplate.txt";
         std::string last_path;
         std::string errors;
         int ret = parse_and_apply_config(config_path, config, errors);

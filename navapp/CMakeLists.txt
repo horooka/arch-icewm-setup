@@ -11,6 +11,7 @@ if(DEBUG)
   target_compile_definitions(navapp PRIVATE DEBUG)
 endif()
 target_include_directories(navapp PRIVATE include)
+target_link_libraries(navapp PRIVATE readline)
 target_compile_options(navapp PRIVATE -DUI_IMPLEMENTATION -DUI_LINUX -g)
 
 add_custom_command(

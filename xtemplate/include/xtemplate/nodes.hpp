@@ -43,6 +43,7 @@ typedef enum {
     NODE_COND,
     NODE_ERROR,
     NODE_XTEMPLATE,
+    NODE_COMMAND,
     NODE_SET,
     NODE_CLEAR,
 } NodeType;

@@ -51,7 +51,6 @@
 #define SHOW_YES 0x52
 #define IS_DIR 0x60
 #define IS_GIT 0x61
-#define RETURN 0xF0
 
 typedef unsigned char Type;
 

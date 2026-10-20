@@ -3,8 +3,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <sys/wait.h>
 #include <unordered_map>
 #include <vector>
 
@@ -289,6 +292,17 @@ static Node *parse_block(TokenStream &ts, bool stop_at_branch_boundary) {
                             n->as.xt.argv[ai] = intern_string(extra[ai]);
                     }
                 }
+            } else if (ts.peek_directive_keyword("COMMAND")) {
+                ts.consume_directive_keyword("COMMAND");
+                std::string rest = ts.read_rest_of_line();
+                if (rest.empty()) {
+                    ts.report("##COMMAND expects command call");
+                    n = nullptr;
+                } else {
+                    n = new_node(NODE_COMMAND);
+                    n->as.text.content = intern_string(rest);
+                    n->as.text.len = rest.size();
+                }
             } else if (ts.peek_directive_start()) {
                 // Unknown / stray ## — keep the directive line as literal text
                 // (indent before ## is skipped so it does not leak into output)
@@ -343,7 +357,8 @@ void Node::destroy(Node *n) {
         n->next_sibling = nullptr;
         n->cond_chain_next_sibling = nullptr;
         destroy(n->first_child);
-        if (n->type == NODE_TEXT || n->type == NODE_ERROR) {
+        if (n->type == NODE_TEXT || n->type == NODE_ERROR ||
+            n->type == NODE_COMMAND) {
             delete[] n->as.text.content;
         } else if (n->type == NODE_COND && n->as.cond.cond) {
             delete[] n->as.cond.cond->arg1;
@@ -472,6 +487,64 @@ render_text_node(const std::unordered_map<std::string, std::string> &vars,
     }
 }
 
+/* Append already-rendered text, indenting every line start (no $var pass). */
+static void append_indented(const std::string &text, std::string &result,
+                            unsigned char append_indent) {
+    if (append_indent == 0) {
+        result += text;
+        return;
+    }
+    const std::string spaces(static_cast<size_t>(append_indent), ' ');
+    bool at_line_start = true;
+    for (const char c : text) {
+        if (at_line_start) {
+            result += spaces;
+            at_line_start = false;
+        }
+        result.push_back(c);
+        if (c == '\n')
+            at_line_start = true;
+    }
+}
+
+/* Run `command` through /bin/sh and capture stdout. Returns 0 on success. */
+static int run_shell_command(const std::string &command, std::string &output,
+                             std::string &error) {
+    output.clear();
+    errno = 0;
+    FILE *pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        error = "##COMMAND: cannot execute \"" + command +
+                "\": " + std::strerror(errno);
+        return -1;
+    }
+    char buf[4096];
+    size_t n = 0;
+    while ((n = std::fread(buf, 1, sizeof(buf), pipe)) > 0)
+        output.append(buf, n);
+    const int status = pclose(pipe);
+    if (status == -1) {
+        error = "##COMMAND: cannot wait for \"" + command +
+                "\": " + std::strerror(errno);
+        return -1;
+    }
+    if (WIFEXITED(status)) {
+        const int code = WEXITSTATUS(status);
+        if (code != 0) {
+            error = "##COMMAND exited with status " + std::to_string(code) +
+                    ": " + command;
+            return code;
+        }
+        return 0;
+    }
+    if (WIFSIGNALED(status)) {
+        error = "##COMMAND terminated by signal " +
+                std::to_string(WTERMSIG(status)) + ": " + command;
+        return -1;
+    }
+    return 0;
+}
+
 static std::string
 expand_vars_text(const std::unordered_map<std::string, std::string> &vars,
                  const char *content) {
@@ -587,6 +660,68 @@ void Node::render(std::unordered_map<std::string, std::string> &vars,
             if (!ok)
                 throw RenderError(nested_err);
             result += sub_out;
+            break;
+        }
+        case NODE_COMMAND: {
+            // Expand $vars first, then take an optional leading integer as
+            // extra indent. Doing this after expansion allows the indent to
+            // come from a variable, e.g. "##COMMAND $indent echo hi".
+            std::string expanded;
+            render_text_node(vars, n->as.text.content, n->as.text.len,
+                             expanded, true, 0);
+            size_t start = 0;
+            while (start < expanded.size() &&
+                   std::isspace(static_cast<unsigned char>(expanded[start])))
+                ++start;
+            if (start > 0)
+                expanded.erase(0, start);
+            if (expanded.empty())
+                break;
+
+            unsigned int extra_indent = 0;
+            size_t digits = 0;
+            while (digits < expanded.size() &&
+                   std::isdigit(static_cast<unsigned char>(expanded[digits]))) {
+                if (extra_indent <= 255)
+                    extra_indent =
+                        extra_indent * 10 +
+                        static_cast<unsigned>(expanded[digits] - '0');
+                ++digits;
+            }
+            if (extra_indent > 255)
+                extra_indent = 255;
+
+            std::string command = expanded;
+            if (digits > 0 &&
+                (digits == expanded.size() ||
+                 std::isspace(static_cast<unsigned char>(expanded[digits])))) {
+                command.erase(0, digits);
+                size_t lead = 0;
+                while (lead < command.size() &&
+                       std::isspace(static_cast<unsigned char>(command[lead])))
+                    ++lead;
+                command.erase(0, lead);
+            } else {
+                extra_indent = 0;
+            }
+            if (command.empty())
+                break;
+
+            std::string output, error;
+            if (run_shell_command(command, output, error) != 0)
+                throw RenderError(error);
+            // ##COMMAND consumes its whole line, so keep the following
+            // template line on a new line even if the command emitted no
+            // trailing newline.
+            if (!output.empty() && output.back() != '\n')
+                output.push_back('\n');
+            // Additive to the current nesting indent (##XTEMPLATE --indent).
+            unsigned int indent = static_cast<unsigned int>(append_indent) +
+                                  extra_indent;
+            if (indent > 255)
+                indent = 255;
+            append_indented(output, result,
+                            static_cast<unsigned char>(indent));
             break;
         }
         case NODE_COND: {
