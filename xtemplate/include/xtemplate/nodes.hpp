@@ -44,6 +44,8 @@ typedef enum {
     NODE_ERROR,
     NODE_XTEMPLATE,
     NODE_COMMAND,
+    NODE_CAPTURE,
+    NODE_FOREACH,
     NODE_SET,
     NODE_CLEAR,
 } NodeType;
@@ -85,6 +87,16 @@ struct Node {
                 } cond;
                 struct {
                         const char *name;
+                        const char *command; // rest of line, $vars expanded at render
+                        size_t len;
+                } capture; // NODE_CAPTURE
+                struct {
+                        const char *name;
+                        const char *list; // rest of line after IN, $vars expanded at render
+                        size_t len;
+                } loop; // NODE_FOREACH
+                struct {
+                        const char *name;
                         const char *xfile; // nullable => use resolver current_xfile
                         // Remaining CLI-style tokens after name / -xfile
                         // (e.g. --level $level --title $title).
@@ -117,6 +129,8 @@ struct XTemplateRenderContext {
         unsigned char sub_indent = 0;
         int depth = 0;
         int max_depth = 12;
+        // false for --check: parse/validate without running shell commands.
+        bool execute_commands = true;
 
         ParseDiagnostics *diag = nullptr; // share diag for nested parsing
         std::function<bool(const std::string &name, const std::string &xfile, std::string &out_body)> resolve;
