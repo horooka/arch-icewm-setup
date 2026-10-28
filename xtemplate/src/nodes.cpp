@@ -303,6 +303,46 @@ static Node *parse_block(TokenStream &ts, bool stop_at_branch_boundary) {
                     n->as.text.content = intern_string(rest);
                     n->as.text.len = rest.size();
                 }
+            } else if (ts.peek_directive_keyword("CAPTURE")) {
+                ts.consume_directive_keyword("CAPTURE");
+                std::string var = read_required_cond_var(ts, "##CAPTURE");
+                std::string command = ts.read_rest_of_line();
+                if (command.empty()) {
+                    ts.report("##CAPTURE expects a shell command");
+                    n = nullptr;
+                } else {
+                    n = new_node(NODE_CAPTURE);
+                    n->as.capture.name =
+                        var.empty() ? nullptr : intern_string(var);
+                    n->as.capture.command = intern_string(command);
+                    n->as.capture.len = command.size();
+                }
+            } else if (ts.peek_directive_keyword("FOREACH")) {
+                ts.consume_directive_keyword("FOREACH");
+                std::string var = read_required_cond_var(ts, "##FOREACH");
+                ts.skip_spaces_tabs();
+                std::string list;
+                if (!ts.match_keyword("IN")) {
+                    ts.report("##FOREACH expects: ##FOREACH var IN "
+                              "item1,item2,...");
+                    ts.read_rest_of_line();
+                } else {
+                    ts.consume_keyword("IN");
+                    list = ts.read_rest_of_line();
+                    if (list.empty())
+                        ts.report("##FOREACH expects a non-empty list after "
+                                  "IN");
+                }
+                n = new_node(NODE_FOREACH);
+                n->as.loop.name = var.empty() ? nullptr : intern_string(var);
+                n->as.loop.list =
+                    list.empty() ? nullptr : intern_string(list);
+                n->as.loop.len = list.size();
+                n->first_child = parse_block(ts, true);
+                if (ts.peek_is_end())
+                    ts.consume_end();
+                else
+                    ts.report("##FOREACH is missing ##END");
             } else if (ts.peek_directive_start()) {
                 // Unknown / stray ## — keep the directive line as literal text
                 // (indent before ## is skipped so it does not leak into output)
@@ -374,6 +414,16 @@ void Node::destroy(Node *n) {
                     delete[] n->as.xt.argv[ai];
                 delete[] n->as.xt.argv;
             }
+        } else if (n->type == NODE_CAPTURE) {
+            if (n->as.capture.name)
+                delete[] n->as.capture.name;
+            if (n->as.capture.command)
+                delete[] n->as.capture.command;
+        } else if (n->type == NODE_FOREACH) {
+            if (n->as.loop.name)
+                delete[] n->as.loop.name;
+            if (n->as.loop.list)
+                delete[] n->as.loop.list;
         } else if (n->type == NODE_SET || n->type == NODE_CLEAR) {
             if (n->as.assign.name)
                 delete[] n->as.assign.name;
@@ -487,6 +537,42 @@ render_text_node(const std::unordered_map<std::string, std::string> &vars,
     }
 }
 
+static std::string trim_ws(const std::string &value) {
+    size_t start = 0;
+    size_t end = value.size();
+    while (start < end &&
+           std::isspace(static_cast<unsigned char>(value[start])))
+        ++start;
+    while (end > start &&
+           std::isspace(static_cast<unsigned char>(value[end - 1])))
+        --end;
+    return value.substr(start, end - start);
+}
+
+// Inline lists use commas; multi-line values (e.g. from ##CAPTURE) use
+// newlines. Empty items are skipped in both cases.
+static std::vector<std::string> split_loop_items(const std::string &value) {
+    std::vector<std::string> items;
+    const bool multiline = value.find('\n') != std::string::npos;
+    size_t start = 0;
+    while (start <= value.size()) {
+        const size_t sep =
+            multiline ? value.find('\n', start) : value.find(',', start);
+        std::string item =
+            value.substr(start, sep == std::string::npos ? std::string::npos
+                                                         : sep - start);
+        if (!item.empty() && item.back() == '\r')
+            item.pop_back();
+        item = trim_ws(item);
+        if (!item.empty())
+            items.push_back(std::move(item));
+        if (sep == std::string::npos)
+            break;
+        start = sep + 1;
+    }
+    return items;
+}
+
 /* Append already-rendered text, indenting every line start (no $var pass). */
 static void append_indented(const std::string &text, std::string &result,
                             unsigned char append_indent) {
@@ -583,6 +669,9 @@ void Node::render(std::unordered_map<std::string, std::string> &vars,
                              render_empty_vals, append_indent);
             break;
         case NODE_ERROR: {
+            // --check is a lint pass: runtime guards are data-dependent.
+            if (xctx && !xctx->execute_commands)
+                break;
             // Abort render; message is the ##ERROR line with $vars expanded
             std::string msg;
             render_text_node(vars, n->as.text.content, n->as.text.len, msg,
@@ -707,6 +796,10 @@ void Node::render(std::unordered_map<std::string, std::string> &vars,
             if (command.empty())
                 break;
 
+            // --check validates the template without side effects.
+            if (xctx && !xctx->execute_commands)
+                break;
+
             std::string output, error;
             if (run_shell_command(command, output, error) != 0)
                 throw RenderError(error);
@@ -722,6 +815,71 @@ void Node::render(std::unordered_map<std::string, std::string> &vars,
                 indent = 255;
             append_indented(output, result,
                             static_cast<unsigned char>(indent));
+            break;
+        }
+        case NODE_CAPTURE: {
+            if (!n->as.capture.name)
+                break;
+            std::string command;
+            if (n->as.capture.command) {
+                render_text_node(vars, n->as.capture.command,
+                                 n->as.capture.len, command, true, 0);
+            }
+            // --check must not run shell commands; keep the variable defined
+            // so subsequent conditions still see a deterministic value.
+            if (command.empty() || (xctx && !xctx->execute_commands)) {
+                vars[n->as.capture.name] = std::string();
+                break;
+            }
+
+            std::string output, error;
+            if (run_shell_command(command, output, error) != 0)
+                throw RenderError(error);
+            // Shell command substitution semantics: strip trailing newlines,
+            // preserve leading/trailing spaces and inner newlines.
+            while (!output.empty() &&
+                   (output.back() == '\n' || output.back() == '\r'))
+                output.pop_back();
+            vars[n->as.capture.name] = output;
+            break;
+        }
+        case NODE_FOREACH: {
+            if (!n->as.loop.name || !n->as.loop.list)
+                break;
+            std::string list_expr;
+            render_text_node(vars, n->as.loop.list, n->as.loop.len,
+                             list_expr, true, 0);
+            const std::vector<std::string> items =
+                split_loop_items(list_expr);
+            const std::string var_name(n->as.loop.name);
+
+            // Save outer bindings so nested loops shadow cleanly.
+            auto prev_item = vars.find(var_name);
+            const bool had_item = prev_item != vars.end();
+            const std::string prev_item_value =
+                had_item ? prev_item->second : std::string();
+            auto prev_index = vars.find("index");
+            const bool had_index = prev_index != vars.end();
+            const std::string prev_index_value =
+                had_index ? prev_index->second : std::string();
+
+            for (size_t index = 0; index < items.size(); ++index) {
+                vars[var_name] = items[index];
+                vars["index"] = std::to_string(index);
+                if (n->first_child) {
+                    n->first_child->render(vars, result, render_empty_vals,
+                                           append_indent, xctx);
+                }
+            }
+
+            if (had_item)
+                vars[var_name] = prev_item_value;
+            else
+                vars.erase(var_name);
+            if (had_index)
+                vars["index"] = prev_index_value;
+            else
+                vars.erase("index");
             break;
         }
         case NODE_COND: {

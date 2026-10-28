@@ -224,8 +224,10 @@ opportunity to manage multiple xtemplate files
 - Opportunity to use hardcoded config as include/xtemplate/xtemplate_hardcoded.h file
     1. Hardcoded xtemplates' displaying can be toggled via toolbar checkbox
 - Conditional blocks in xtemplate bodies via an AST (`##IF_*` / `##END`)
+- Shell command output (`##COMMAND`), capture (`##CAPTURE`) and iteration (`##FOREACH`)
 - Possibility to reuse templates by recursive rendering with ##XTEMPLATE directive
 - Exposed rendering API via CLI mode (rendering, xtemplates listing, xtemplates' vars listing)
+- GTK-free CLI build (`-DXTEMPLATE_BUILD_GUI=OFF`)
 
 ### Config file format
 
@@ -233,9 +235,9 @@ Config file is a .ini file with the following sections
 
 | Key | Value |
 | --- | ----- |
-| DefaultPath | Path to fallback xtemplate file location, default is `~/.config/xtemplate.ini` |
+| DefaultPath | Path to fallback xtemplate file location, default is `~/.config/xtemplate.d/xtemplate.txt` |
 | LastPathIdx | Idx of a last used xfile from cache list paths, preffered over DefaultPath |
-| RenderEmptyVals | If set to 'true', $varname with we rendered even for an empty string |
+| RenderEmptyVals | If set to 'true', `$varname` is rendered even for an empty string |
 
 - Cache list - Ini group, representing set of ever opened xfiles:
 
@@ -298,8 +300,10 @@ Template's variables can be used in conditional blocks and conditional variables
 | `##ERROR message` | Abort render; message is the rest of the line (`$vars` expanded), manual way to implement complex logic |
 | `##SET var rest...` | Set/replace `var` to the rest of the line (expanded) |
 | `##CLEAR var` | Clear `var` |
-| `##XTEMPLATE name [--xfile PATH] [--var val]` | Render xtemplate inside. `-xfile` to use different file. Indent is controlled by `--indent`. |
+| `##XTEMPLATE name [--xfile PATH] [--NAME VALUE]` | Render xtemplate inside, optionally overriding its variables. `-xfile` to use different file. Indent is controlled by `--indent`. |
 | `##COMMAND [n] command` | Run `command` via the shell and insert its stdout. `$vars` are expanded first; the optional first argument adds `n` spaces of indent and may itself be a `$var` expanding to a number (a non-numeric first token is part of the command). A non-zero exit aborts rendering (append `\|\| true` to ignore it). |
+| `##CAPTURE var command` | Run `command` via the shell and store its stdout in `var` without inserting it. `$vars` are expanded first; trailing newlines are stripped (like shell command substitution). A non-zero exit aborts rendering. |
+| `##FOREACH var IN list` | Repeat the block until `##END`, setting `var` to each item and `index` to the 0-based position. Inline lists split on commas (items are trimmed); a value containing newlines splits on newlines (items are trimmed). Empty items are skipped. `index` is reserved and restored after nested loops. |
 | `##IF_ON var` | Start a chain; take when checkbox var is `ON` |
 | `##IF_OFF var` | Start a chain; take when checkbox var is `OFF` |
 | `##IF_EQ var value` | Start a chain; take when var equals value |
@@ -308,20 +312,50 @@ Template's variables can be used in conditional blocks and conditional variables
 | `##IF_NEMPTY var` | Start a chain; take when var is not empty (equivalent to `##IF_NEQ var ""`) |
 | `##ELIF_ON/OFF/EQ/NEQ/EMPTY/NEMPTY` | Next branch in the same chain |
 | `##ELSE` | Final fallback branch |
-| `##END` | Closes the whole IF/ELIF/ELSE chain |
+| `##END` | Closes the current `##IF`/`##ELIF`/`##ELSE` chain or `##FOREACH` block |
 
+`##COMMAND` and `##CAPTURE` execute shell commands embedded in the template;
+only render templates you trust.
+
+```text
+##CAPTURE branch git rev-parse --abbrev-ref HEAD
+##IF_EQ branch main
+on main
+##ELSE
+on $branch
+##END
+##FOREACH item IN one,two
+- $item ($index)
+##END
+```
 
 ### Cli mode
 
-- Usage: xtemplate [COMMAND] [ARG]
+- Usage: xtemplate [OPTIONS]
 
 ```
-Commands:
-  -h, --help          Show this help message and exit
-  --xfile [PATH]      Xtemplate file to use
-  --xtemplate [TEXT]  Xtemplate to use, (default: last cached or stored default from ~/.config/xtemplate.ini accordignly to their priorities)
-  --indent [INT]      Additional indent for xtemplates' bodies
-  --list-xtemplates   List xtemplates
-  --list-variables    List vars for the choosen xtempalte
-  --[var] [value]     Set variable to value. Vars tagged "[REQUIRED]" must be set (non-empty) for rendering
+Options:
+  -h, --help            Show this help message and exit
+  --xfile PATH          Xtemplate file to use
+  --xtemplate NAME      Xtemplate to render
+  --indent INT          Additional indent for nested xtemplate bodies (0..255)
+  -v, --var NAME=VALUE  Set a template variable (repeatable)
+  --NAME VALUE          Legacy form: set variable NAME
+  --                    Treat all remaining arguments as NAME=VALUE assignments
+  --check               Parse and validate without running ##COMMAND; prints OK on success
+  --list-xtemplates     List xtemplates
+  --list-variables      List vars for the chosen xtemplate
 ```
+
+`-v/--var NAME=VALUE` avoids the flag/name collision (e.g. a template variable
+literally named `indent` or `var`) and keeps values starting with `-`
+unambiguous; the legacy `--NAME VALUE` form still works for other names.
+`--check` parses the selected template, resolves the nested `##XTEMPLATE` calls
+it reaches, and renders with shell commands and runtime `##ERROR` guards
+disabled, so it is safe to run on untrusted templates; it does not enforce
+`[REQUIRED]` vars.
+
+A GTK-free CLI build is available with
+`cmake -S . -B build -DXTEMPLATE_BUILD_GUI=OFF` (the binary is `xtemplate`).
+With the default `XTEMPLATE_BUILD_GUI=ON`, both `xtemplate` (GUI, also accepts
+CLI arguments) and `xtemplate-cli` are built.

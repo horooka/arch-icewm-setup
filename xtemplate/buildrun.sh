@@ -1,3 +1,8 @@
-glib-compile-resources --target=icons_resource.c --generate-source icons.gresource.xml
+#!/bin/sh
+set -e
+cd "$(dirname "$0")"
 
-g++ -g src/main.cpp src/xtemplate.cpp src/utils.cpp src/nodes.cpp src/block_canvas.cpp icons_resource.c -o xtemplate -Iinclude $(pkg-config --cflags --libs gtkmm-3.0) -Wall -Wextra && ./xtemplate
+cmake -S . -B build -DXTEMPLATE_BUILD_GUI="${XTEMPLATE_BUILD_GUI:-ON}"
+cmake --build build -j"$(nproc)"
+
+exec ./build/xtemplate "$@"
