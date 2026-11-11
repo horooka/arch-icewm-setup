@@ -136,24 +136,24 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
         }
         const char spec = line[i + 1];
         unsigned char id = 9;
-        if (spec == 'P')
-            id = 0;
-        else if (spec == 'B')
-            id = 1;
-        else if (spec == 'N')
-            id = 2;
-        else if (spec == 'C')
-            id = 3;
-        else if (spec == 'L')
-            id = 4;
-        else if (spec == 'F')
-            id = 5;
-        else if (spec == 'D')
-            id = 6;
+        if (spec == 'D')
+            id = 0; // dir
         else if (spec == 'M')
-            id = 7;
+            id = 1; // msg
+        else if (spec == 'F')
+            id = 2; // file
+        else if (spec == 'C')
+            id = 3; // cmd
+        else if (spec == 'L')
+            id = 4; // level
         else if (spec == 'S')
-            id = 8;
+            id = 5; // style
+        else if (spec == 'T')
+            id = 6; // date
+        else if (spec == 'K')
+            id = 7; // kind
+        else if (spec == 'V')
+            id = 8; // settings value
         if (id != 9) {
             specifiers.push_back({id, i});
             i += 2;
@@ -166,17 +166,19 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
 }
 
 std::pair<unsigned char, unsigned char> parse_dest_line(
-    const std::string &line, std::string &dest_name, std::string &dest_path,
-    std::string &dest_brief, std::string &note_path, std::string &dest_date,
-    std::string &dest_mark, std::string &dest_command, std::string &errors) {
+    const std::string &line, std::string &dest_name, std::string &dest_dir,
+    std::string &dest_msg, std::string &dest_file, std::string &dest_date,
+    std::string &dest_kind, std::string &dest_cmd, std::string &dest_value,
+    std::string &errors) {
     std::pair<unsigned char, unsigned char> ret = {0, 0};
     dest_name.clear();
-    dest_path.clear();
-    dest_brief.clear();
-    note_path.clear();
+    dest_dir.clear();
+    dest_msg.clear();
+    dest_file.clear();
     dest_date.clear();
-    dest_mark.clear();
-    dest_command.clear();
+    dest_kind.clear();
+    dest_cmd.clear();
+    dest_value.clear();
     size_t split_pos = line.find('=');
     if (split_pos == std::string::npos) {
         errors += "Invalid line: \"" + line + "\"\n";
@@ -204,29 +206,29 @@ std::pair<unsigned char, unsigned char> parse_dest_line(
             continue;
         switch (tag.id) {
         case 0:
-            dest_path = content;
+            dest_dir = content;
             break;
         case 1:
-            dest_brief = content;
+            dest_msg = content;
             break;
         case 2:
-            note_path = content;
+            dest_file = content;
             break;
         case 3:
-            dest_command = content;
+            dest_cmd = content;
             break;
         case 4:
             try {
                 ret.second = static_cast<unsigned char>(std::stoi(content));
             } catch (...) {
-                errors += "Invalid priority value: \"" + content + "\"\n";
+                errors += "Invalid level value: \"" + content + "\"\n";
             }
             break;
         case 5:
             try {
                 ret.first = static_cast<unsigned char>(std::stoi(content));
             } catch (...) {
-                errors += "Invalid formatting value: \"" + content + "\"\n";
+                errors += "Invalid style value: \"" + content + "\"\n";
             }
             break;
         case 6: {
@@ -238,10 +240,10 @@ std::pair<unsigned char, unsigned char> parse_dest_line(
             break;
         }
         case 7:
-            dest_mark = content;
+            dest_kind = content;
             break;
         case 8:
-            dest_path = content;
+            dest_value = content;
             break;
         }
     }
@@ -280,24 +282,24 @@ unsigned char go(const Dest &dest, std::string &field_out,
                  const std::array<std::string, 4> &fields_priority,
                  const std::vector<std::string> &args) {
     for (const std::string &field : fields_priority) {
-        if (field == "command") {
-            if (!dest.command.empty()) {
-                field_out = expand_args(dest.command, args);
+        if (field == "cmd") {
+            if (!dest.cmd.empty()) {
+                field_out = expand_args(dest.cmd, args);
                 return 4;
             }
-        } else if (field == "path") {
-            if (!dest.path.empty()) {
-                field_out = expand_args(dest.path, args);
+        } else if (field == "dir") {
+            if (!dest.dir.empty()) {
+                field_out = expand_args(dest.dir, args);
                 return 0;
             }
-        } else if (field == "note") {
-            if (!dest.note_path.empty()) {
-                field_out = expand_args(dest.note_path, args);
+        } else if (field == "file") {
+            if (!dest.file.empty()) {
+                field_out = expand_args(dest.file, args);
                 return 2;
             }
-        } else if (field == "brief") {
-            if (!dest.brief.empty()) {
-                field_out = expand_args(dest.brief, args);
+        } else if (field == "msg") {
+            if (!dest.msg.empty()) {
+                field_out = expand_args(dest.msg, args);
                 return 3;
             }
         }
@@ -311,20 +313,20 @@ unsigned char go(const Dest &dest, std::string &field_out,
 }
 
 void fields_used(const Dest &dest, std::string &fields_out) {
-    if (!dest.path.empty())
-        fields_out += "[P]";
-    if (!dest.brief.empty())
-        fields_out += "[B]";
-    if (!dest.note_path.empty())
-        fields_out += "[N]";
-    if (!dest.date.empty())
+    if (!dest.dir.empty())
         fields_out += "[D]";
-    if (!dest.command.empty())
-        fields_out += "[C]";
-    if (!dest.dest_mark.empty())
+    if (!dest.msg.empty())
         fields_out += "[M]";
-    if (dest.formatting != 0)
+    if (!dest.file.empty())
         fields_out += "[F]";
+    if (!dest.date.empty())
+        fields_out += "[T]";
+    if (!dest.cmd.empty())
+        fields_out += "[C]";
+    if (!dest.kind.empty())
+        fields_out += "[K]";
+    if (dest.style != 0)
+        fields_out += "[S]";
     if (dest.level != 0)
         fields_out += "[L]";
 }
@@ -532,8 +534,8 @@ std::optional<std::string> readline_prefilled(const std::string &prompt,
 }
 
 bool validate_dest_line(const std::string &line, std::string &errors) {
-    std::string name, path, brief, note, date, mark, command, line_errors;
-    parse_dest_line(line, name, path, brief, note, date, mark, command,
+    std::string name, dir, msg, file, date, kind, cmd, value, line_errors;
+    parse_dest_line(line, name, dir, msg, file, date, kind, cmd, value,
                     line_errors);
     if (!line_errors.empty()) {
         errors += line_errors;
@@ -565,16 +567,16 @@ int edit_dest(const std::string &file_path, Dest &dest) {
         return 1;
     }
     size_t idx = 0;
-    if (!find_dest_line(doc, dest.group_name, dest.dest_name, idx)) {
+    if (!find_dest_line(doc, dest.group, dest.dest_name, idx)) {
         std::cerr << "Dest not found: " << dest.dest_name << "\n";
         return 1;
     }
 
     std::string current = doc.lines[idx];
     // In MRAW/MCOMPOSERAW mode the caller stores the original line in
-    // dest.path; prefer it as the prefill when it really is this dest's line.
+    // dest.dir; prefer it as the prefill when it really is this dest's line.
     {
-        const std::string &raw = dest.path;
+        const std::string &raw = dest.dir;
         const size_t eq = raw.find('=');
         if (eq != std::string::npos) {
             std::string raw_name = raw.substr(0, eq);
@@ -614,11 +616,12 @@ int edit_dest(const std::string &file_path, Dest &dest) {
             std::cerr << errors;
             return 1;
         }
-        const auto formatting_priority = parse_dest_line(
-            *edited, dest.dest_name, dest.path, dest.brief, dest.note_path,
-            dest.date, dest.dest_mark, dest.command, line_errors);
-        dest.formatting = formatting_priority.first;
-        dest.level = formatting_priority.second;
+        std::string value;
+        const auto style_priority = parse_dest_line(
+            *edited, dest.dest_name, dest.dir, dest.msg, dest.file,
+            dest.date, dest.kind, dest.cmd, value, line_errors);
+        dest.style = style_priority.first;
+        dest.level = style_priority.second;
         return 0;
     }
 }
@@ -779,14 +782,14 @@ int remove_dest(const std::string &file_path, const Dest &dest, bool force) {
         return 1;
     }
     size_t idx = 0;
-    if (!find_dest_line(doc, dest.group_name, dest.dest_name, idx)) {
+    if (!find_dest_line(doc, dest.group, dest.dest_name, idx)) {
         std::cerr << "Dest not found: " << dest.dest_name << "\n";
         return 1;
     }
 
     if (!force) {
         const std::string prompt = "Remove \"" + dest.dest_name + "\" from [" +
-                                   dest.group_name + "]? [y/N] ";
+                                   dest.group + "]? [y/N] ";
         std::string answer;
         if (isatty(STDIN_FILENO)) {
             char *line = readline(prompt.c_str());
@@ -868,7 +871,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
         return ret;
     std::istringstream ss(output);
     std::string curr_group_name;
-    unsigned char curr_formatting = 0;
+    unsigned char curr_style = 0;
     std::string line;
     uint8_t *buffer = NULL;
     size_t buffer_size = 0;
@@ -962,8 +965,8 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             decode_const_pool(&const_strs, (uint8_t *)ctx->const_pool, offset);
         }
     }
-    std::string dest_name, dest_path, dest_brief, note_path, dest_date,
-        dest_mark, dest_command;
+    std::string dest_name, dest_dir, dest_msg, dest_file, dest_date,
+        dest_kind, dest_cmd, dest_value;
     std::optional<std::streampos> prev_line;
     bool settings_found = false;
     // Util groups
@@ -979,82 +982,82 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             if (size_t comma_pos = curr_group_name.find(',');
                 comma_pos != std::string::npos) {
                 try {
-                    curr_formatting = static_cast<unsigned char>(
+                    curr_style = static_cast<unsigned char>(
                         std::stoi(curr_group_name.substr(comma_pos + 1)));
                 } catch (...) {
-                    errors += "Invalid formatting: \"" +
+                    errors += "Invalid style: \"" +
                               curr_group_name.substr(comma_pos + 1) + "\"\n";
-                    curr_formatting = 1;
+                    curr_style = 1;
                     continue;
                 }
                 curr_group_name = curr_group_name.substr(0, comma_pos);
             } else {
-                curr_formatting = 0;
+                curr_style = 0;
             }
             trim(curr_group_name);
             continue;
         }
-        parse_dest_line(line, dest_name, dest_path, dest_brief, note_path,
-                        dest_date, dest_mark, dest_command, errors);
+        parse_dest_line(line, dest_name, dest_dir, dest_msg, dest_file,
+                        dest_date, dest_kind, dest_cmd, dest_value, errors);
         if (dest_name.empty())
             continue;
         if (curr_group_name == "@SETTINGS") {
             settings_found = true;
             prev_line = ss.tellg();
             if (dest_name == "priority")
-                settings.fields_priority = split_priorities(dest_path);
+                settings.fields_priority = split_priorities(dest_value);
             else if (dest_name == "on_startup") {
-                settings.on_startup = dest_path;
+                settings.on_startup = dest_value;
                 if (MBASE(mode) == M_STARTUP)
                     return 0;
             } else if (dest_name == "panel") {
-                settings.panel = dest_path;
-            } else if (dest_name == "marks_map") {
-                std::vector<std::string> mappings = split_by_comma(dest_path);
+                settings.panel = dest_value;
+            } else if (dest_name == "kinds_map") {
+                std::vector<std::string> mappings = split_by_comma(dest_value);
                 for (const std::string &map_pair : mappings) {
                     const auto iter =
                         std::find(map_pair.begin(), map_pair.end(), '=');
                     if (iter == map_pair.end()) {
                         errors +=
-                            "Invalid mark mapping: \"" + map_pair + "\"\n";
+                            "Invalid kind mapping: \"" + map_pair + "\"\n";
                         continue;
                     }
-                    std::string mark =
+                    std::string kind =
                         map_pair.substr(0, iter - map_pair.begin());
-                    trim(mark);
-                    std::string mark_symbol =
+                    trim(kind);
+                    std::string kind_symbol =
                         map_pair.substr(iter - map_pair.begin() + 1);
-                    trim(mark_symbol);
-                    if (mark_symbol.size() > 1) {
-                        if (mark_symbol.size() == 3 && mark_symbol[0] == '\'' &&
-                            mark_symbol[2] == '\'') {
-                            mark_symbol = mark_symbol.substr(1, 2);
+                    trim(kind_symbol);
+                    if (kind_symbol.size() > 1) {
+                        if (kind_symbol.size() == 3 && kind_symbol[0] == '\'' &&
+                            kind_symbol[2] == '\'') {
+                            kind_symbol = kind_symbol.substr(1, 2);
                         } else {
                             errors += "Map is longer than 1 symbol: \"" +
                                       map_pair + "\"\n";
                             continue;
                         }
                     }
-                    for (size_t i = 0; i < settings.mark_to_symbol_map.size();
+                    for (size_t i = 0; i < settings.kind_to_symbol_map.size();
                          ++i) {
-                        if (settings.mark_to_symbol_map[i].first == mark) {
+                        if (settings.kind_to_symbol_map[i].first == kind) {
                             const std::string &existing_symbol =
-                                settings.mark_to_symbol_map[i].first;
+                                settings.kind_to_symbol_map[i].first;
                             if (existing_symbol != "opened" &&
                                 existing_symbol != "closed" &&
                                 existing_symbol != "finished" &&
                                 existing_symbol != "ongoing") {
-                                errors += "Duplicate mark mapping: \"" + mark +
+                                errors += "Duplicate kind mapping: \"" + kind +
                                           "\"\n";
                                 continue;
                             }
-                            settings.mark_to_symbol_map[i].second =
-                                mark_symbol[0];
+                            settings.kind_to_symbol_map[i].second =
+                                kind_symbol[0];
                             continue;
                         }
                     }
-                    settings.mark_to_symbol_map.push_back(
-                        std::make_pair(mark, mark_symbol[0]));
+                    settings.kind_to_symbol_map.push_back(
+                        std::make_pair(kind, kind_symbol[0]));
                 }
             }
             continue;
@@ -1069,53 +1072,53 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             continue;
         if (line[0] == '[') {
             curr_group_name = line.substr(1, line.size() - 2);
-            bool has_format = false;
+            bool has_style = false;
             if (size_t comma_pos = curr_group_name.find(',');
                 comma_pos != std::string::npos) {
                 try {
-                    curr_formatting = static_cast<unsigned char>(
+                    curr_style = static_cast<unsigned char>(
                         std::stoi(curr_group_name.substr(comma_pos + 1)));
-                    has_format = true;
+                    has_style = true;
                 } catch (...) {
-                    errors += "Invalid formatting: \"" +
+                    errors += "Invalid style: \"" +
                               curr_group_name.substr(comma_pos + 1) + "\"\n";
-                    curr_formatting = 1;
+                    curr_style = 1;
                     continue;
                 }
                 curr_group_name = curr_group_name.substr(0, comma_pos);
             } else {
-                curr_formatting = 0;
+                curr_style = 0;
             }
             trim(curr_group_name);
-            if (has_format) {
+            if (has_style) {
                 bool updated = false;
-                for (auto &entry : settings.group_format_map) {
+                for (auto &entry : settings.group_style_map) {
                     if (entry.first == curr_group_name) {
-                        entry.second = curr_formatting;
+                        entry.second = curr_style;
                         updated = true;
                         break;
                     }
                 }
                 if (!updated)
-                    settings.group_format_map.push_back(
-                        {curr_group_name, curr_formatting});
+                    settings.group_style_map.push_back(
+                        {curr_group_name, curr_style});
             }
             continue;
         }
-        const auto formatting_priority =
-            parse_dest_line(line, dest_name, dest_path, dest_brief, note_path,
-                            dest_date, dest_mark, dest_command, errors);
+        const auto style_priority =
+            parse_dest_line(line, dest_name, dest_dir, dest_msg, dest_file,
+                            dest_date, dest_kind, dest_cmd, dest_value, errors);
         if (dest_name.empty())
             continue;
-        // Dest's own @F wins; otherwise fall back to the group's format.
-        const unsigned char formatting = formatting_priority.first != 0
-                                             ? formatting_priority.first
-                                             : curr_formatting;
-        Dest destination = {dest_name,       formatting,
-                            dest_path,       dest_brief,
-                            note_path,       dest_date,
-                            dest_command,    dest_mark,
-                            curr_group_name, formatting_priority.second};
+        // Dest's own @S wins; otherwise fall back to the group's style.
+        const unsigned char style = style_priority.first != 0
+                                        ? style_priority.first
+                                        : curr_style;
+        Dest destination = {dest_name,       style,
+                            dest_dir,        dest_msg,
+                            dest_file,       dest_date,
+                            dest_cmd,        dest_kind,
+                            curr_group_name, style_priority.second};
         if (filter) {
             if (execute(buffer, buffer_size, const_strs, &destination) == 1) {
                 if (MBASE(mode) != M_FIRST) {
@@ -1123,7 +1126,7 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                     continue;
                 }
                 if (MRAW(mode))
-                    destination.path = line;
+                    destination.dir = line;
                 dests.push_back(destination);
                 return 0;
             }

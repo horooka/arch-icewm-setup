@@ -6,25 +6,25 @@ MESSAGE() {
 #              WORKFLOW continuation
 #=================================================
 
-run_brief_go() {
-  output_mod="$(navapp brief-get "$@" 2>&1)"
+run_msg_go() {
+  output_mod="$(navapp msg-get "$@" 2>&1)"
   rc_mod=$?
   if [[ $rc_mod -ne 1 ]]; then
     MESSAGE "$output_mod"
     # else
     # MESSAGE "ERROR: $output_mod"
-    # Do nothing if brief is not presented for dest
+    # Do nothing if msg is not presented for dest
   fi
 }
 
-run_note_go() {
-  output_mod="$(navapp note-get "$@" 2>&1)"
+run_file_go() {
+  output_mod="$(navapp file-get "$@" 2>&1)"
   rc_mod=$?
   if [[ $rc_mod -ne 1 ]]; then
     $EDITOR "$output_mod"
     # else
     # MESSAGE "ERROR: $output_mod"
-    # Do nothing if note is not presented for dest
+    # Do nothing if file is not presented for dest
   fi
 }
 
@@ -89,11 +89,11 @@ nav() {
     echo "  list [<group>] [-c|-s]      lists dests"
     echo "  list-filter <cond> [-c|-s]  lists dests satisfying condition"
     echo "  panel [<panel>] [--static]  interactive panel from config or provided one (--static prints once)"
-    echo "  go <dest> [-c|-s]           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
-    echo "  brief <dest> [-c|-s]        performs brief opening on dest"
-    echo "  note <dest> [-c|-s]         performs note opening on dest"
-    echo "  brief-go <dest> [-c|-s]     displays brief note and performs go"
-    echo "  note-go <dest> [-c|-s]      displays note and performs go"
+    echo "  go <dest> [-c|-s]           cd/display/open/execute depends on dest's dir / msg / file / cmd fields priority"
+    echo "  msg <dest> [-c|-s]          performs msg opening on dest"
+    echo "  file <dest> [-c|-s]         performs file opening on dest"
+    echo "  msg-go <dest> [-c|-s]       displays msg and performs go"
+    echo "  file-go <dest> [-c|-s]      displays file and performs go"
     echo "  go-filter <cond> [-c|-s]    performs go on first dest satisfying condition"
     echo "  edit <dest> [-c|-s]         edits a dest line in place (readline, prefilled)"
     echo "  rm <dest> [-f] [-c|-s]      removes a dest (asks for confirmation; -f skips)"
@@ -103,7 +103,7 @@ nav() {
     echo "  query <query> [-f]          allows to query the navdict into stdout ([-f] adds the field header)"
     echo "  dates [opts]                lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
     echo "  dests-list                  emits dests for shell completion (color params, display, value)"
-    echo "  <dest>                      gives a path to a dest"
+    echo "  <dest>                      gives the resolved target of a dest"
     echo ""
     echo "Flags:"
     echo "  -c  reuse the previously compiled filter"
@@ -147,10 +147,10 @@ nav() {
       run_go "$selection"
       ;;
     11)
-      run_brief_go "$selection"
+      run_msg_go "$selection"
       ;;
     12)
-      run_note_go "$selection"
+      run_file_go "$selection"
       ;;
     13)
       navapp edit "$selection"
@@ -183,33 +183,33 @@ nav() {
       return $rc
     fi
     ;;
-  go | brief-go | note-go)
+  go | msg-go | file-go)
     if [[ -z $2 ]]; then
       echo "Usage: $1 <dest>"
       return 1
     fi
     case $1 in
-    brief-go)
-      run_brief_go "${@:2}"
+    msg-go)
+      run_msg_go "${@:2}"
       ;;
-    note-go)
-      run_note_go "${@:2}"
+    file-go)
+      run_file_go "${@:2}"
       ;;
     esac
     run_go "${@:2}"
     return $?
     ;;
-  note | brief)
+  file | msg)
     if [[ -z $2 ]]; then
       echo "Usage: $1 <dest>"
       return 1
     fi
     case $1 in
-    brief)
-      run_brief_go "${@:2}"
+    msg)
+      run_msg_go "${@:2}"
       ;;
-    note)
-      run_note_go "${@:2}"
+    file)
+      run_file_go "${@:2}"
       ;;
     esac
     return $?
