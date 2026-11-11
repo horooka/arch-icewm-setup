@@ -1218,9 +1218,11 @@ Val compile(CompileCtx *ctx, const char *opcode_path, bool do_cache,
     int bytecode_size = ctx->bytecode_size;
     if (do_cache) {
         FILE *f = fopen(opcode_path, "wb");
-        fwrite(const_pool, 1, const_pool_size, f);
-        fwrite(bytecode, 1, bytecode_size, f);
-        fclose(f);
+        if (f) {
+            fwrite(const_pool, 1, const_pool_size, f);
+            fwrite(bytecode, 1, bytecode_size, f);
+            fclose(f);
+        }
     }
 #ifdef DEBUG
     printf("Compiled: ");

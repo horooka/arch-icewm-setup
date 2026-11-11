@@ -20,6 +20,7 @@ struct Settings {
         std::array<std::string, 4> fields_priority = {"command", "path", "note",
                                                       "brief"};
         std::string on_startup = "";
+        std::string panel = ""; // required layout for `navapp panel`
         std::vector<std::pair<std::string, char>> mark_to_symbol_map = {
             {"opened", ' '},
             {"closed", 'X'},

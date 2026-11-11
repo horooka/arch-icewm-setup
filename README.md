@@ -11,6 +11,7 @@ which are either a task or a navigation path (filesystem path, url, command), or
 Commands:
   list [<group>] [-c|-s]           lists dests (of the group)
   list-filter <cond> [-c|-s]       lists dests satisfying condition
+  panel [<panel>] [--static]       interactive panel from config or provided one (--static prints once)
   get <dest> [args] [-c|-s]        prints the path of the dest with args expanded
   get-filter <cond> [-c|-s]        prints dest_name of the first dest satisfying condition
   brief-get <dest> [args] [-c|-s]  prints the brief of the dest
@@ -26,6 +27,50 @@ Commands:
 Flags:
   -c  reuse the previously compiled filter
   -s  compile the filter but do not cache it
+```
+
+### Panel
+
+`nav panel [<panel>]` opens the interactive panel configured by the `panel`
+setting, or from a layout passed as the first argument. `--static` prints the
+composed panel once as plain text. The `panel` setting is required when no
+layout argument is given; an empty setting is an error.
+
+```text
+H(...)   horizontal split
+V(...)   vertical split
+```
+
+Pane leaves:
+
+| Leaf | Meaning |
+| --- | --- |
+| `pane:groups` | groups with dest counts; selecting one drives `pane:list` |
+| `pane:list` | dests of the selected group (all dests when no group is selected) |
+| `pane:list:all` | all dests |
+| `pane:list:group=NAME` | dests of a literal group |
+| `pane:list:filter=EXPR` | dests matching a query filter expression |
+| `pane:detail` | fields of the selected dest |
+| `pane:stats` | totals, groups, marks, due/overdue and missing paths |
+| `pane:attention[:DAYS]` | overdue/soon dates and missing paths (default 7 days) |
+| `pane:dates` | dated dests in ascending date order |
+| `pane:cmd:SHELL` | shell command output (bare leaves are legacy shell commands too) |
+
+Leaves can contain commas and parentheses inside quotes or balanced
+parentheses. Panes share `$group`/`$dest` selection context; `pane:cmd` is the
+escape hatch for external commands.
+
+Keys: `Tab`/`Shift-Tab` (or left/right arrows) focus, `j`/`k` (or up/down)
+move, `Enter` go, `b` brief, `n` note, `e` edit, `r` rm, `R` reload, `q` quit.
+`navapp panel` prints only the selected dest and returns the action as an exit
+status: `0` quit/no selection, `10` go, `11` brief, `12` note, `13` edit,
+`14` rm, `1` error. The `nav` wrapper dispatches those codes to the existing
+commands.
+
+Example:
+
+```ini
+panel=@SH(V(pane:groups,pane:dates,pane:stats),V(pane:list,pane:detail))
 ```
 
 ### Nav file format

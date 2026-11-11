@@ -4,7 +4,7 @@ project(navapp LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(navapp src/main.cpp src/navdict.cpp)
+add_executable(navapp src/main.cpp src/navdict.cpp src/panel.cpp)
 
 option(DEBUG "Enable debug mode for opcodes compilation/execution, cant be used via shell due to debug output" OFF)
 if(DEBUG)

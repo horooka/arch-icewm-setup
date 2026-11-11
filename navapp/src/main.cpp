@@ -5,6 +5,7 @@
 #include <nav.h>
 #include <string>
 #include <unistd.h>
+#include "panel.h"
 
 struct Ctx {
         int argc = 0;
@@ -180,6 +181,23 @@ static int run_list(Ctx &ctx, bool is_filter) {
 
 static int cmd_list(Ctx &ctx) { return run_list(ctx, false); }
 static int cmd_list_filter(Ctx &ctx) { return run_list(ctx, true); }
+static int cmd_panel(Ctx &ctx) {
+    bool interactive = true;
+    std::string panel_arg;
+    if (ctx.argc >= 3) {
+        if (std::strcmp(ctx.argv[2], "--static") == 0) {
+            interactive = false;
+        } else {
+            if (ctx.argc >= 4 && std::strcmp(ctx.argv[3], "--static") == 0)
+                interactive = false;
+            panel_arg = ctx.argv[2];
+        }
+    }
+    if (load(ctx, nullptr, MCOMPOSE(M_NONE, 0, 0), "Parse errors:\n"))
+        return 1;
+    return eval_panel(panel_arg.empty() ? ctx.settings.panel : panel_arg,
+                      ctx.navdict, ctx.dests, ctx.settings, interactive);
+}
 
 // ============================================================================
 //                            SINGLE-DEST COMMANDS
@@ -449,11 +467,12 @@ static int cmd_rm(Ctx &ctx) {
     std::string filter_storage;
     if (dest_arg)
         filter_storage = std::string("dest = '") + dest_arg + "'";
-    // With -c the contents are unused; keep it non-NULL to take the cached path.
+    // With -c the contents are unused; keep it non-NULL to take the cached
+    // path.
     if (!dest_arg && cached)
         filter_storage = "";
-    if (load(ctx, filter_storage.c_str(),
-             MCOMPOSE(M_FIRST, cached, silent), "Parse errors:\n"))
+    if (load(ctx, filter_storage.c_str(), MCOMPOSE(M_FIRST, cached, silent),
+             "Parse errors:\n"))
         return 1;
     return remove_dest(ctx.navdict, ctx.dests[0], force);
 }
@@ -465,6 +484,7 @@ static int cmd_rm(Ctx &ctx) {
 static const Command commands[] = {
     {"list", cmd_list},
     {"list-filter", cmd_list_filter},
+    {"panel", cmd_panel},
     {"get", cmd_get},
     {"get-filter", cmd_get_filter},
     {"brief-get", cmd_brief_get},
@@ -480,39 +500,42 @@ static const Command commands[] = {
 };
 
 static int print_usage() {
-    std::cout << "Usage: navapp <command> <arg>\n\n"
-                 "Commands:\n"
-                 "  list [<group>] [-c|-s]           lists dests (of the "
-                 "group)\n"
-                 "  list-filter <cond> [-c|-s]       lists dests satisfying "
-                 "condition\n"
-                 "  get <dest> [args] [-c|-s]        prints the path of the "
-                 "dest with args expanded\n"
-                 "  get-filter <cond> [-c|-s]        prints dest_name of the "
-                 "first dest satisfying condition\n"
-                 "  brief-get <dest> [args] [-c|-s]  prints the brief of the "
-                 "dest\n"
-                 "  note-get <dest> [args] [-c|-s]   prints the note of the "
-                 "dest\n"
-                 "  edit <dest> [-c|-s]              edits a dest line in "
-                 "place (readline, prefilled)\n"
-                 "  rm <dest> [-f] [-c|-s]           removes a dest "
-                 "(confirmation unless -f)\n"
-                 "  query <query> [-f]               allows to query the "
-                 "navdict into stdout ([-f] adds the field header)\n"
-                 "  get-startup                      prints the startup command "
-                 "from config\n"
-                 "  dates [--upcoming [N]]           lists dests with dates "
-                 "sorted by date (also --past, --reverse, --all, --limit N)\n"
-                 "  edit-group <group>               edits a group body in "
-                 "$EDITOR\n"
-                 "  add <group> [line]               appends a dest line to a "
-                 "group\n"
-                 "\n"
-                 "Flags:\n"
-                 "  -c  reuse the previously compiled filter\n"
-                 "  -s  compile the filter but do not cache it\n"
-              << std::endl;
+    std::cout
+        << "Usage: navapp <command> <arg>\n\n"
+           "Commands:\n"
+           "  list [<group>] [-c|-s]           lists dests (of the "
+           "group)\n"
+           "  list-filter <cond> [-c|-s]       lists dests satisfying "
+           "condition\n"
+           "  panel [<panel>] [--static]       interactive panel from config "
+           "or provided one (--static prints once)\n"
+           "  get <dest> [args] [-c|-s]        prints the path of the "
+           "dest with args expanded\n"
+           "  get-filter <cond> [-c|-s]        prints dest_name of the "
+           "first dest satisfying condition\n"
+           "  brief-get <dest> [args] [-c|-s]  prints the brief of the "
+           "dest\n"
+           "  note-get <dest> [args] [-c|-s]   prints the note of the "
+           "dest\n"
+           "  edit <dest> [-c|-s]              edits a dest line in "
+           "place (readline, prefilled)\n"
+           "  rm <dest> [-f] [-c|-s]           removes a dest "
+           "(confirmation unless -f)\n"
+           "  query <query> [-f]               allows to query the "
+           "navdict into stdout ([-f] adds the field header)\n"
+           "  get-startup                      prints the startup command "
+           "from config\n"
+           "  dates [--upcoming [N]]           lists dests with dates "
+           "sorted by date (also --past, --reverse, --all, --limit N)\n"
+           "  edit-group <group>               edits a group body in "
+           "$EDITOR\n"
+           "  add <group> [line]               appends a dest line to a "
+           "group\n"
+           "\n"
+           "Flags:\n"
+           "  -c  reuse the previously compiled filter\n"
+           "  -s  compile the filter but do not cache it\n"
+        << std::endl;
     return 0;
 }
 

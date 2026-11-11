@@ -1,5 +1,4 @@
 MESSAGE() {
-  # "$1" | $EDITOR
   zenity --info --text="$1"
 }
 
@@ -89,6 +88,7 @@ nav() {
     echo "Commands:"
     echo "  list [<group>] [-c|-s]      lists dests"
     echo "  list-filter <cond> [-c|-s]  lists dests satisfying condition"
+    echo "  panel [<panel>] [--static]  interactive panel from config or provided one (--static prints once)"
     echo "  go <dest> [-c|-s]           cd/display/open/execute depends on dest's path / brief / note path / command fields priority"
     echo "  brief <dest> [-c|-s]        performs brief opening on dest"
     echo "  note <dest> [-c|-s]         performs note opening on dest"
@@ -112,6 +112,58 @@ nav() {
   fi
 
   case $1 in
+  panel)
+    local panel_arg="${2:-}"
+    local panel_static=0
+    if [[ "$panel_arg" == "--static" ]]; then
+      panel_static=1
+      panel_arg=""
+    elif [[ -n "$panel_arg" && "${3:-}" == "--static" ]]; then
+      panel_static=1
+    fi
+    if (( panel_static )) || [[ ! -t 0 ]]; then
+      if [[ -n "$panel_arg" ]]; then
+        navapp panel "$panel_arg" --static
+      else
+        navapp panel --static
+      fi
+      return $?
+    fi
+    if [[ -n "$panel_arg" ]]; then
+      selection="$(navapp panel "$panel_arg")"
+    else
+      selection="$(navapp panel)"
+    fi
+    rc=$?
+    if (( rc >= 10 && rc <= 14 )) && [[ -z "$selection" ]]; then
+      echo "Panel returned no destination"
+      return 1
+    fi
+    case $rc in
+    0)
+      return 0
+      ;;
+    10)
+      run_go "$selection"
+      ;;
+    11)
+      run_brief_go "$selection"
+      ;;
+    12)
+      run_note_go "$selection"
+      ;;
+    13)
+      navapp edit "$selection"
+      ;;
+    14)
+      navapp rm "$selection"
+      ;;
+    *)
+      return $rc
+      ;;
+    esac
+    return $?
+    ;;
   dests-list)
     navapp dests-list "${@:2}"
     return $?

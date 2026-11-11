@@ -1007,6 +1007,8 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                 settings.on_startup = dest_path;
                 if (MBASE(mode) == M_STARTUP)
                     return 0;
+            } else if (dest_name == "panel") {
+                settings.panel = dest_path;
             } else if (dest_name == "marks_map") {
                 std::vector<std::string> mappings = split_by_comma(dest_path);
                 for (const std::string &map_pair : mappings) {
