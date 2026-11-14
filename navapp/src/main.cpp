@@ -27,25 +27,27 @@ struct Command {
 //                               DISPLAY HELPERS
 // ============================================================================
 
-char mark_to_symbol(const Settings &settings, const Dest &dest) {
-    for (const auto &mark_to_symbol_map : settings.mark_to_symbol_map) {
-        if (mark_to_symbol_map.first == dest.dest_mark)
-            return mark_to_symbol_map.second;
+char kind_to_symbol(const Settings &settings, const Dest &dest) {
+    if (dest.kind.empty())
+        return '-';
+    for (const auto &kind_to_symbol_map : settings.kind_to_symbol_map) {
+        if (kind_to_symbol_map.first == dest.kind)
+            return kind_to_symbol_map.second;
     }
-    if (dest.dest_mark == "dest") {
+    if (dest.kind == "dest") {
         for (const std::string &field : settings.fields_priority) {
-            if (field == "command") {
-                if (!dest.command.empty())
+            if (field == "cmd") {
+                if (!dest.cmd.empty())
                     return 'C';
-            } else if (field == "path") {
-                if (!dest.path.empty())
-                    return 'P';
-            } else if (field == "note") {
-                if (!dest.note_path.empty())
-                    return 'N';
-            } else if (field == "brief") {
-                if (!dest.brief.empty())
-                    return 'B';
+            } else if (field == "dir") {
+                if (!dest.dir.empty())
+                    return 'D';
+            } else if (field == "file") {
+                if (!dest.file.empty())
+                    return 'F';
+            } else if (field == "msg") {
+                if (!dest.msg.empty())
+                    return 'M';
             }
         }
     }
@@ -57,11 +59,11 @@ char mark_to_symbol(const Settings &settings, const Dest &dest) {
  * nibble. Nibbles are ANSI-16 color numbers (0 = terminal default, 1-7 normal,
  * 8-15 bright). Escapes are only emitted when stdout is a TTY.
  */
-static std::string sgr_params(unsigned char formatting) {
-    if (formatting == 0)
+static std::string sgr_params(unsigned char style) {
+    if (style == 0)
         return "";
-    const int fg = formatting & 0x0F;
-    const int bg = (formatting >> 4) & 0x0F;
+    const int fg = style & 0x0F;
+    const int bg = (style >> 4) & 0x0F;
     std::string params;
     if (fg != 0)
         params += std::to_string(fg < 8 ? 30 + fg : 90 + (fg - 8));
@@ -73,27 +75,27 @@ static std::string sgr_params(unsigned char formatting) {
     return params;
 }
 
-static std::string ansi_color(unsigned char formatting, bool force) {
+static std::string ansi_color(unsigned char style, bool force) {
     static const int color_enabled = isatty(STDOUT_FILENO) ? 1 : 0;
     if (!force && !color_enabled)
         return "";
-    const std::string params = sgr_params(formatting);
+    const std::string params = sgr_params(style);
     if (params.empty())
         return "";
     return "\033[" + params + "m";
 }
 
-static std::string colorize(const std::string &text, unsigned char formatting,
+static std::string colorize(const std::string &text, unsigned char style,
                             bool force = false) {
-    const std::string color = ansi_color(formatting, force);
+    const std::string color = ansi_color(style, force);
     if (color.empty())
         return text;
     return color + text + "\033[0m";
 }
 
-static unsigned char group_format(const Settings &settings,
+static unsigned char group_style(const Settings &settings,
                                   const std::string &group_name) {
-    for (const auto &entry : settings.group_format_map) {
+    for (const auto &entry : settings.group_style_map) {
         if (entry.first == group_name)
             return entry.second;
     }
@@ -125,21 +127,21 @@ static int load(Ctx &ctx, const char *filter, unsigned char mode,
 static void print_selected(const Ctx &ctx) {
     std::string last_group;
     for (const auto &dest : ctx.dests) {
-        if (last_group != dest.group_name) {
-            last_group = dest.group_name;
+        if (last_group != dest.group) {
+            last_group = dest.group;
             std::cout << colorize("[" + last_group + "]",
-                                  group_format(ctx.settings, last_group))
+                                  group_style(ctx.settings, last_group))
                       << '\n';
         }
         std::string fields;
         fields_used(dest, fields);
         std::string line;
-        if (dest.dest_mark.empty())
+        if (dest.kind.empty())
             line = "   -  " + dest.dest_name + " " + fields;
         else
-            line = std::string("  [") + mark_to_symbol(ctx.settings, dest) +
+            line = std::string("  [") + kind_to_symbol(ctx.settings, dest) +
                    "] " + dest.dest_name + " " + fields;
-        std::cout << colorize(line, dest.formatting) << '\n';
+        std::cout << colorize(line, dest.style) << '\n';
     }
 }
 
@@ -242,7 +244,7 @@ static int run_get(Ctx &ctx, bool is_filter) {
     return ret;
 }
 
-static int run_field(Ctx &ctx, bool note) {
+static int run_field(Ctx &ctx, bool file) {
     DestQuery q;
     if (!parse_dest_query(ctx, false, q))
         return 1;
@@ -250,10 +252,10 @@ static int run_field(Ctx &ctx, bool note) {
              "Parse errors:\n"))
         return 1;
     const Dest &dest = ctx.dests[0];
-    const std::string &value = note ? dest.note_path : dest.brief;
+    const std::string &value = file ? dest.file : dest.msg;
     if (value.empty()) {
         std::cerr << "Dest " << ctx.argv[2] << " has no "
-                  << (note ? "note" : "brief") << std::endl;
+                  << (file ? "file" : "msg") << std::endl;
         return 1;
     }
     if (q.args.empty())
@@ -265,8 +267,8 @@ static int run_field(Ctx &ctx, bool note) {
 
 static int cmd_get(Ctx &ctx) { return run_get(ctx, false); }
 static int cmd_get_filter(Ctx &ctx) { return run_get(ctx, true); }
-static int cmd_brief_get(Ctx &ctx) { return run_field(ctx, false); }
-static int cmd_note_get(Ctx &ctx) { return run_field(ctx, true); }
+static int cmd_msg_get(Ctx &ctx) { return run_field(ctx, false); }
+static int cmd_file_get(Ctx &ctx) { return run_field(ctx, true); }
 
 // ============================================================================
 //                              SPECIAL COMMANDS
@@ -279,13 +281,13 @@ static int cmd_dests_list(Ctx &ctx) {
     // maps the SGR params to its own color mechanism.
     for (const auto &dest : ctx.dests) {
         const std::string display =
-            dest.dest_mark.empty()
+            dest.kind.empty()
                 ? std::string(" -  ") + dest.dest_name
-                : std::string("[") + mark_to_symbol(ctx.settings, dest) + "] " +
+                : std::string("[") + kind_to_symbol(ctx.settings, dest) + "] " +
                       dest.dest_name;
         // "-" marks "no color" so the first tab-separated field is never
         // empty (a leading tab would be eaten by shell `read`).
-        const std::string sgr = sgr_params(dest.formatting);
+        const std::string sgr = sgr_params(dest.style);
         std::printf("%s\t%s\t%s\n", sgr.empty() ? "-" : sgr.c_str(),
                     display.c_str(), dest.dest_name.c_str());
     }
@@ -392,16 +394,16 @@ static int cmd_dates(Ctx &ctx) {
                     rel = std::to_string(-delta) + " days ago";
             }
         }
-        std::string mark_prefix = "    ";
-        if (!dest.dest_mark.empty())
+        std::string mark_prefix = " -  ";
+        if (!dest.kind.empty())
             mark_prefix =
-                std::string("[") + mark_to_symbol(ctx.settings, dest) + "] ";
+                std::string("[") + kind_to_symbol(ctx.settings, dest) + "] ";
         std::string rel_padded = rel;
         if (rel_padded.size() < 12)
             rel_padded.append(12 - rel_padded.size(), ' ');
         std::string line =
             date_col + "  " + rel_padded + " " + mark_prefix + dest.dest_name;
-        std::cout << colorize(line, dest.formatting) << '\n';
+        std::cout << colorize(line, dest.style) << '\n';
     }
     return 0;
 }
@@ -487,8 +489,8 @@ static const Command commands[] = {
     {"panel", cmd_panel},
     {"get", cmd_get},
     {"get-filter", cmd_get_filter},
-    {"brief-get", cmd_brief_get},
-    {"note-get", cmd_note_get},
+    {"msg-get", cmd_msg_get},
+    {"file-get", cmd_file_get},
     {"query", cmd_query},
     {"dates", cmd_dates},
     {"dests-list", cmd_dests_list},
@@ -509,13 +511,13 @@ static int print_usage() {
            "condition\n"
            "  panel [<panel>] [--static]       interactive panel from config "
            "or provided one (--static prints once)\n"
-           "  get <dest> [args] [-c|-s]        prints the path of the "
-           "dest with args expanded\n"
+           "  get <dest> [args] [-c|-s]        prints the resolved target of "
+           "the dest with args expanded\n"
            "  get-filter <cond> [-c|-s]        prints dest_name of the "
            "first dest satisfying condition\n"
-           "  brief-get <dest> [args] [-c|-s]  prints the brief of the "
+           "  msg-get <dest> [args] [-c|-s]    prints the message of the "
            "dest\n"
-           "  note-get <dest> [args] [-c|-s]   prints the note of the "
+           "  file-get <dest> [args] [-c|-s]   prints the file of the "
            "dest\n"
            "  edit <dest> [-c|-s]              edits a dest line in "
            "place (readline, prefilled)\n"

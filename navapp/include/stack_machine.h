@@ -75,11 +75,11 @@ typedef struct {
         unsigned char idx;
 } SchemaCol;
 
-static const SchemaCol schema_cols[] = {{"dest", STR, 0},    {"path", STR, 1},
-                                        {"brief", STR, 2},   {"note", STR, 3},
-                                        {"command", STR, 4}, {"group", STR, 5},
-                                        {"level", I32, 6},   {"format", I32, 7},
-                                        {"mark", STR, 8},    {"date", STR, 9}};
+static const SchemaCol schema_cols[] = {{"dest", STR, 0},   {"dir", STR, 1},
+                                        {"msg", STR, 2},    {"file", STR, 3},
+                                        {"cmd", STR, 4},    {"group", STR, 5},
+                                        {"level", I32, 6},  {"style", I32, 7},
+                                        {"kind", STR, 8},   {"date", STR, 9}};
 
 static char *alloc_format(const char *fmt, ...) {
     va_list args;
@@ -166,28 +166,28 @@ bool get_col_ptr(const Dest *dest, unsigned char idx, ValUnion *val_out) {
         val_out->str = const_cast<char *>(dest->dest_name.data());
         return true;
     case 1:
-        val_out->str = const_cast<char *>(dest->path.data());
+        val_out->str = const_cast<char *>(dest->dir.data());
         return true;
     case 2:
-        val_out->str = const_cast<char *>(dest->brief.data());
+        val_out->str = const_cast<char *>(dest->msg.data());
         return true;
     case 3:
-        val_out->str = const_cast<char *>(dest->note_path.data());
+        val_out->str = const_cast<char *>(dest->file.data());
         return true;
     case 4:
-        val_out->str = const_cast<char *>(dest->command.data());
+        val_out->str = const_cast<char *>(dest->cmd.data());
         return true;
     case 5:
-        val_out->str = const_cast<char *>(dest->group_name.data());
+        val_out->str = const_cast<char *>(dest->group.data());
         return true;
     case 6:
         val_out->i32 = dest->level;
         return true;
     case 7:
-        val_out->i32 = dest->formatting;
+        val_out->i32 = dest->style;
         return true;
     case 8:
-        val_out->str = const_cast<char *>(dest->dest_mark.data());
+        val_out->str = const_cast<char *>(dest->kind.data());
         return true;
     case 9:
         val_out->str = const_cast<char *>(dest->date.data());

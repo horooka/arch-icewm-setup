@@ -17,10 +17,20 @@ ArrangeWindowsOnScreenSizeChange=1 # 0/1
 AutoRaise=0 # 0/1
 BatteryPollingPeriod=20 # [2-3600]
 
+#  Show task bar.
+ShowTaskBar=0 # 0/1
 CPUStatusShowAcpiTemp=1 # 0/1
 CPUStatusShowAcpiTempInGraph=1 # 0/1
 CPUStatusShowRamUsage=1 # 0/1
 CPUStatusShowSwapUsage=1 # 0/1
+TaskBarApmGraphWidth=20 # [1-1000]
+TaskBarCPUSamples=40 # [2-1000]
+TaskBarGraphHeight=0 # [16-1000]
+TaskBarMEMSamples=40 # [2-1000]
+TaskBarNetSamples=40 # [2-1000]
+TaskBarShowStartMenu=0 # 0/1
+TaskBarShowWindowListMenu=0 # 0/1
+TaskBarShowShowDesktopButton=0 # [0-2]
 
 CenterMaximizedWindows=0 # 0/1
 CenterTransientsOnOwner=1 # 0/1
@@ -29,15 +39,6 @@ FocusRequestFlashInterval=0 # [0-30000]
 FullscreenUseAllMonitors=0 # 0/1
 HideBordersMaximized=1 # 0/1
 HideTitleBarWhenMaximized=1 # 0/1
-
-TaskBarApmGraphWidth=20 # [1-1000]
-TaskBarCPUSamples=40 # [2-1000]
-TaskBarGraphHeight=25 # [16-1000]
-TaskBarMEMSamples=40 # [2-1000]
-TaskBarNetSamples=40 # [2-1000]
-TaskBarShowStartMenu=0 # 0/1
-TaskBarShowWindowListMenu=0 # 0/1
-TaskBarShowShowDesktopButton=0 # [0-2]
 
 BorderSizeX=2 # [0-128]
 BorderSizeY=2 # [0-128]
@@ -362,9 +363,6 @@ KeyWinTileTop="Alt+Super+t"
 
 #  Show settings submenu in the program menu.
 # ShowSettingsMenu=1 # 0/1
-
-#  Show task bar.
-# ShowTaskBar=1 # 0/1
 
 #  Show themes submenu in the program menu.
 # ShowThemesMenu=1 # 0/1

@@ -17,30 +17,30 @@
 #define MBASE(x) (x & 31)
 
 struct Settings {
-        std::array<std::string, 4> fields_priority = {"command", "path", "note",
-                                                      "brief"};
+        std::array<std::string, 4> fields_priority = {"cmd", "dir", "file",
+                                                      "msg"};
         std::string on_startup = "";
         std::string panel = ""; // required layout for `navapp panel`
-        std::vector<std::pair<std::string, char>> mark_to_symbol_map = {
+        std::vector<std::pair<std::string, char>> kind_to_symbol_map = {
             {"opened", ' '},
             {"closed", 'X'},
             {"finished", '-'},
             {"ongoing", '>'}};
-        // Group -> packed 8-bit format (fg in low nibble, bg in high nibble),
-        // collected from `[Group, fmt]` headers. Missing entry means no format.
-        std::vector<std::pair<std::string, unsigned char>> group_format_map;
+        // Group -> packed 8-bit style (fg in low nibble, bg in high nibble),
+        // collected from `[Group, style]` headers. Missing entry means no style.
+        std::vector<std::pair<std::string, unsigned char>> group_style_map;
 };
 
 struct Dest {
         std::string dest_name = "";
-        unsigned char formatting = 0;
-        std::string path = "";
-        std::string brief = "";
-        std::string note_path = "";
+        unsigned char style = 0;
+        std::string dir = "";
+        std::string msg = "";
+        std::string file = "";
         std::string date = "";
-        std::string command = "";
-        std::string dest_mark = "";
-        std::string group_name = "";
+        std::string cmd = "";
+        std::string kind = "";
+        std::string group = "";
         unsigned char level = 0;
 };
 

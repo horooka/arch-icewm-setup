@@ -1,6 +1,6 @@
 set -eu
 
-sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake opencode ttf-meslo-nerd
+sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake ttf-meslo-nerd python fastfetch
 
 # ============
 # === Home ===
@@ -55,7 +55,7 @@ echo "\n\n=================="
 echo "=== .local/bin ==="
 echo "==================\n\n"
 mkdir -p "$HOME/.local/bin/"
-for i in utils/startup.sh utils/opencode.sh utils/fork-xterm.sh utils/text-utils.sh; do
+for i in utils/startup.sh utils/fork-xterm.sh utils/text-utils.sh; do
   src="$i"
   src_base="$(basename "$src")"
   dst="$HOME/.local/bin/$src_base"
@@ -68,6 +68,16 @@ for i in utils/startup.sh utils/opencode.sh utils/fork-xterm.sh utils/text-utils
   fi
   chmod +x "$dst"
 done
+
+# ==============================
+# === .local/venvs/local-bin ===
+# ==============================
+# echo "\n\n=============================="
+# echo "=== .local/venvs/local-bin ==="
+# echo "==============================\n\n"
+# mkdir -p "$HOME/.local/venvs/"
+# python -m venv "$HOME/.local/venvs/local-bin/"
+# eval "$HOME/.local/venvs/local-bin/bin/pip install check-balance"
 
 # ==============
 # === navapp ===
@@ -120,14 +130,6 @@ git clone https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-
 chsh -s /usr/bin/zsh
 mkdir -p "$HOME/.oh-my-zsh/completions"
 cp utils/_nav "$HOME/.oh-my-zsh/completions/"
-
-# ===============
-# === secrets ===
-# ===============
-echo "\n\n==============="
-echo "=== secrets ==="
-echo "===============\n\n"
-echo " - ~/.local/bin/opencode.sh needs "pass"-managed deepseek key"
 
 # =============
 # === audio ===

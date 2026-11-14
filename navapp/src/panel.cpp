@@ -30,28 +30,28 @@ namespace {
 // ============================================================================
 
 struct LayoutStream {
-    const std::string &data;
-    size_t pos = 0;
+        const std::string &data;
+        size_t pos = 0;
 
-    explicit LayoutStream(const std::string &s) : data(s) {}
+        explicit LayoutStream(const std::string &s) : data(s) {}
 
-    bool eof() const { return pos >= data.size(); }
-    char peek(size_t n = 0) const {
-        return pos + n < data.size() ? data[pos + n] : '\0';
-    }
-    bool advance(size_t n = 1) {
-        if (pos >= data.size())
-            return false;
-        pos = std::min(pos + n, data.size());
-        return true;
-    }
+        bool eof() const { return pos >= data.size(); }
+        char peek(size_t n = 0) const {
+            return pos + n < data.size() ? data[pos + n] : '\0';
+        }
+        bool advance(size_t n = 1) {
+            if (pos >= data.size())
+                return false;
+            pos = std::min(pos + n, data.size());
+            return true;
+        }
 };
 
 struct LayoutNode {
-    enum Kind { Leaf, HSplit, VSplit } kind = Leaf;
-    std::string leaf;
-    std::vector<std::unique_ptr<LayoutNode>> children;
-    int pane_index = -1;
+        enum Kind { Leaf, HSplit, VSplit } kind = Leaf;
+        std::string leaf;
+        std::vector<std::unique_ptr<LayoutNode>> children;
+        int pane_index = -1;
 };
 
 static std::string trim_copy(const std::string &s) {
@@ -119,7 +119,7 @@ static std::string parse_leaf_text(LayoutStream &s) {
 }
 
 static std::unique_ptr<LayoutNode> parse_layout_node(LayoutStream &s,
-                                                      std::string &error);
+                                                     std::string &error);
 
 static std::vector<std::unique_ptr<LayoutNode>>
 parse_layout_list(LayoutStream &s, std::string &error) {
@@ -146,7 +146,7 @@ parse_layout_list(LayoutStream &s, std::string &error) {
 }
 
 static std::unique_ptr<LayoutNode> parse_layout_node(LayoutStream &s,
-                                                      std::string &error) {
+                                                     std::string &error) {
     skip_ws(s);
     if (s.eof())
         return nullptr;
@@ -177,7 +177,7 @@ static std::unique_ptr<LayoutNode> parse_layout_node(LayoutStream &s,
 }
 
 static std::unique_ptr<LayoutNode> parse_layout(const std::string &text,
-                                                 std::string &error) {
+                                                std::string &error) {
     LayoutStream s(text);
     auto root = parse_layout_node(s, error);
     skip_ws(s);
@@ -257,11 +257,11 @@ static std::string pad_visible(std::string s, size_t width) {
     return s;
 }
 
-static std::string sgr_params(unsigned char formatting) {
-    if (formatting == 0)
+static std::string sgr_params(unsigned char style) {
+    if (style == 0)
         return "";
-    const int fg = formatting & 0x0F;
-    const int bg = (formatting >> 4) & 0x0F;
+    const int fg = style & 0x0F;
+    const int bg = (style >> 4) & 0x0F;
     std::string params;
     if (fg != 0)
         params += std::to_string(fg < 8 ? 30 + fg : 90 + (fg - 8));
@@ -273,39 +273,41 @@ static std::string sgr_params(unsigned char formatting) {
     return params;
 }
 
-static std::string colorize(const std::string &text, unsigned char formatting,
+static std::string colorize(const std::string &text, unsigned char style,
                             bool force) {
     if (!force && !isatty(STDOUT_FILENO))
         return text;
-    const std::string params = sgr_params(formatting);
+    const std::string params = sgr_params(style);
     if (params.empty())
         return text;
     return "\x1b[" + params + "m" + text + "\x1b[0m";
 }
 
-static char mark_symbol(const Settings &settings, const Dest &dest) {
-    for (const auto &entry : settings.mark_to_symbol_map) {
-        if (entry.first == dest.dest_mark)
+static char kind_symbol(const Settings &settings, const Dest &dest) {
+    if (dest.kind.empty())
+        return '-';
+    for (const auto &entry : settings.kind_to_symbol_map) {
+        if (entry.first == dest.kind)
             return entry.second;
     }
-    if (dest.dest_mark == "dest") {
+    if (dest.kind == "dest") {
         for (const std::string &field : settings.fields_priority) {
-            if (field == "command" && !dest.command.empty())
+            if (field == "cmd" && !dest.cmd.empty())
                 return 'C';
-            if (field == "path" && !dest.path.empty())
-                return 'P';
-            if (field == "note" && !dest.note_path.empty())
-                return 'N';
-            if (field == "brief" && !dest.brief.empty())
-                return 'B';
+            if (field == "dir" && !dest.dir.empty())
+                return 'D';
+            if (field == "file" && !dest.file.empty())
+                return 'F';
+            if (field == "msg" && !dest.msg.empty())
+                return 'M';
         }
     }
     return '?';
 }
 
-static unsigned char group_format(const Settings &settings,
-                                  const std::string &group_name) {
-    for (const auto &entry : settings.group_format_map) {
+static unsigned char group_style(const Settings &settings,
+                                 const std::string &group_name) {
+    for (const auto &entry : settings.group_style_map) {
         if (entry.first == group_name)
             return entry.second;
     }
@@ -349,9 +351,8 @@ static const Dest *find_dest(const std::vector<Dest> &dests,
 
 static std::string strip_outer_quotes(std::string value) {
     value = trim_copy(value);
-    if (value.size() >= 2 &&
-        ((value.front() == '"' && value.back() == '"') ||
-         (value.front() == '\'' && value.back() == '\'')))
+    if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
+                              (value.front() == '\'' && value.back() == '\'')))
         return value.substr(1, value.size() - 2);
     return value;
 }
@@ -415,48 +416,57 @@ static bool filter_navdict(const std::string &path, const std::string &expr,
 //                                  Panes
 // ============================================================================
 
-enum class PaneKind { Groups, List, Detail, Stats, Attention, Dates, Cmd, Unknown };
+enum class PaneKind {
+    Groups,
+    List,
+    Detail,
+    Stats,
+    Attention,
+    Dates,
+    Cmd,
+    Unknown
+};
 
 struct PaneSpec {
-    PaneKind kind = PaneKind::Unknown;
-    std::string arg;
-    bool legacy_cmd = false;
+        PaneKind kind = PaneKind::Unknown;
+        std::string arg;
+        bool legacy_cmd = false;
 };
 
 struct Rect {
-    int x = 0;
-    int y = 0;
-    int w = 0;
-    int h = 0;
+        int x = 0;
+        int y = 0;
+        int w = 0;
+        int h = 0;
 };
 
 struct Pane {
-    PaneSpec spec;
-    Rect rect;
-    std::string title;
-    std::vector<std::string> lines;
-    std::vector<std::string> keys;
-    std::vector<bool> keyed;
-    bool selectable = false;
-    int cursor = 0;
-    int scroll = 0;
+        PaneSpec spec;
+        Rect rect;
+        std::string title;
+        std::vector<std::string> lines;
+        std::vector<std::string> keys;
+        std::vector<bool> keyed;
+        bool selectable = false;
+        int cursor = 0;
+        int scroll = 0;
 };
 
 struct Model {
-    std::unique_ptr<LayoutNode> root;
-    std::vector<Pane> panes;
+        std::unique_ptr<LayoutNode> root;
+        std::vector<Pane> panes;
 };
 
 struct State {
-    std::string navdict_path;
-    std::vector<Dest> dests;
-    Settings settings;
-    std::string selected_group;
-    std::string selected_dest;
-    int focus = 0;
-    std::string status;
-    std::unordered_map<std::string, std::vector<std::string>> cmd_cache;
-    std::unordered_map<std::string, std::vector<Dest>> filter_cache;
+        std::string navdict_path;
+        std::vector<Dest> dests;
+        Settings settings;
+        std::string selected_group;
+        std::string selected_dest;
+        int focus = 0;
+        std::string status;
+        std::unordered_map<std::string, std::vector<std::string>> cmd_cache;
+        std::unordered_map<std::string, std::vector<Dest>> filter_cache;
 };
 
 static PaneSpec parse_pane_spec(const std::string &leaf) {
@@ -543,15 +553,18 @@ static void compute_rects(LayoutNode *node, const Rect &rect,
 static std::string dest_line(const Dest &dest, const Settings &settings,
                              bool include_group, bool include_date,
                              bool force_color) {
-    std::string line = std::string("[") + mark_symbol(settings, dest) + "] " +
-                       dest.dest_name;
-    if (include_group && !dest.group_name.empty())
-        line += " (" + dest.group_name + ")";
+    std::string line =
+        (dest.kind.empty()
+             ? " -  "
+             : std::string("[") + kind_symbol(settings, dest) + "] ") +
+        dest.dest_name;
+    if (include_group && !dest.group.empty())
+        line += " (" + dest.group + ")";
     if (include_date && !dest.date.empty())
         line += "  " + dest.date;
-    if (!dest.brief.empty())
-        line += "  " + dest.brief;
-    return colorize(line, dest.formatting, force_color);
+    if (!dest.msg.empty())
+        line += "  " + dest.msg;
+    return colorize(line, dest.style, force_color);
 }
 
 static int attention_days(const std::string &arg) {
@@ -564,19 +577,18 @@ static int attention_days(const std::string &arg) {
 
 static void build_groups(Pane &pane, const State &state, bool force_color) {
     pane.title = "Groups";
-    pane.lines.push_back(colorize(
-        "(all)  " + std::to_string(state.dests.size()), 0, false));
+    pane.lines.push_back(
+        colorize("(all)  " + std::to_string(state.dests.size()), 0, false));
     pane.keys.push_back("");
     pane.keyed.push_back(true);
 
     std::vector<std::pair<std::string, int>> groups;
     for (const Dest &dest : state.dests) {
-        auto it = std::find_if(groups.begin(), groups.end(),
-                               [&](const auto &g) {
-                                   return g.first == dest.group_name;
-                               });
+        auto it =
+            std::find_if(groups.begin(), groups.end(),
+                         [&](const auto &g) { return g.first == dest.group; });
         if (it == groups.end())
-            groups.push_back({dest.group_name, 1});
+            groups.push_back({dest.group, 1});
         else
             ++it->second;
     }
@@ -584,7 +596,7 @@ static void build_groups(Pane &pane, const State &state, bool force_color) {
         const std::string line =
             "[" + group.first + "]  " + std::to_string(group.second);
         pane.lines.push_back(colorize(
-            line, group_format(state.settings, group.first), force_color));
+            line, group_style(state.settings, group.first), force_color));
         pane.keys.push_back(group.first);
         pane.keyed.push_back(true);
     }
@@ -602,7 +614,7 @@ static std::vector<Dest> list_view(const Pane &pane, State &state,
         }
         std::vector<Dest> out;
         for (const Dest &dest : state.dests) {
-            if (dest.group_name == state.selected_group)
+            if (dest.group == state.selected_group)
                 out.push_back(dest);
         }
         return out;
@@ -615,7 +627,7 @@ static std::vector<Dest> list_view(const Pane &pane, State &state,
         const std::string group = strip_outer_quotes(arg.substr(6));
         std::vector<Dest> out;
         for (const Dest &dest : state.dests) {
-            if (dest.group_name == group)
+            if (dest.group == group)
                 out.push_back(dest);
         }
         return out;
@@ -641,7 +653,7 @@ static std::vector<Dest> list_view(const Pane &pane, State &state,
     const std::string group = strip_outer_quotes(arg);
     std::vector<Dest> out;
     for (const Dest &dest : state.dests) {
-        if (dest.group_name == group)
+        if (dest.group == group)
             out.push_back(dest);
     }
     return out;
@@ -655,8 +667,7 @@ static void build_list(Pane &pane, State &state, bool force_color) {
     } else if (pane.spec.arg == "all") {
         pane.title = "All dests";
     } else if (pane.spec.arg.rfind("group=", 0) == 0) {
-        pane.title = "Dests: " +
-                     strip_outer_quotes(pane.spec.arg.substr(6));
+        pane.title = "Dests: " + strip_outer_quotes(pane.spec.arg.substr(6));
     } else if (pane.spec.arg.rfind("filter=", 0) == 0) {
         pane.title = "Dests (filtered)";
     } else {
@@ -724,9 +735,9 @@ static void build_attention(Pane &pane, const State &state, bool force_color) {
     pane.title = "Attention " + std::to_string(limit) + "d";
 
     struct Issue {
-        int64_t order;
-        std::string line;
-        std::string key;
+            int64_t order;
+            std::string line;
+            std::string key;
     };
     std::vector<Issue> issues;
     const int32_t today = today_days();
@@ -750,14 +761,13 @@ static void build_attention(Pane &pane, const State &state, bool force_color) {
                                   dest.dest_name});
             }
         }
-        if (looks_like_path(dest.path) && !path_exists(dest.path)) {
-            issues.push_back(
-                {1000000,
-                 "! missing  " +
-                     dest_line(dest, state.settings, false, false,
-                               force_color) +
-                     "  " + dest.path,
-                 dest.dest_name});
+        if (looks_like_path(dest.dir) && !path_exists(dest.dir)) {
+            issues.push_back({1000000,
+                              "! missing  " +
+                                  dest_line(dest, state.settings, false, false,
+                                            force_color) +
+                                  "  " + dest.dir,
+                              dest.dest_name});
         }
     }
 
@@ -789,31 +799,35 @@ static void build_detail(Pane &pane, const State &state) {
     std::string fields;
     fields_used(*dest, fields);
     pane.lines.push_back("dest:    " + dest->dest_name);
-    pane.lines.push_back("group:   " + dest->group_name);
-    pane.lines.push_back(std::string("mark:    ") + mark_symbol(state.settings, *dest) +
-                         " (" + dest->dest_mark + ")");
+    pane.lines.push_back("group:   " + dest->group);
+    const std::string kind =
+        dest->kind.empty()
+            ? "-"
+            : std::string(1, kind_symbol(state.settings, *dest)) + " (" +
+                  dest->kind + ")";
+    pane.lines.push_back("kind:    " + kind);
     pane.lines.push_back("date:    " + dest->date);
     pane.lines.push_back("level:   " + std::to_string(dest->level));
     pane.lines.push_back("fields:  " + fields);
-    pane.lines.push_back("path:    " + dest->path);
-    pane.lines.push_back("brief:   " + dest->brief);
-    pane.lines.push_back("note:    " + dest->note_path);
-    pane.lines.push_back("command: " + dest->command);
+    pane.lines.push_back("dir:     " + dest->dir);
+    pane.lines.push_back("msg:     " + dest->msg);
+    pane.lines.push_back("file:    " + dest->file);
+    pane.lines.push_back("cmd:     " + dest->cmd);
 }
 
 static void build_stats(Pane &pane, const State &state) {
     pane.title = "Stats";
     const int32_t today = today_days();
     std::unordered_set<std::string> groups;
-    std::map<char, int> marks;
+    std::map<char, int> kinds;
     int dated = 0;
     int due = 0;
     int overdue = 0;
     int missing = 0;
 
     for (const Dest &dest : state.dests) {
-        groups.insert(dest.group_name);
-        ++marks[mark_symbol(state.settings, dest)];
+        groups.insert(dest.group);
+        ++kinds[dest.kind.empty() ? '-' : kind_symbol(state.settings, dest)];
         int32_t days = 0;
         if (date_to_days(dest.date, days)) {
             ++dated;
@@ -823,7 +837,7 @@ static void build_stats(Pane &pane, const State &state) {
             else if (diff <= 7)
                 ++due;
         }
-        if (looks_like_path(dest.path) && !path_exists(dest.path))
+        if (looks_like_path(dest.dir) && !path_exists(dest.dir))
             ++missing;
     }
 
@@ -833,16 +847,16 @@ static void build_stats(Pane &pane, const State &state) {
     pane.lines.push_back("due <=7d  " + std::to_string(due));
     pane.lines.push_back("overdue   " + std::to_string(overdue));
     pane.lines.push_back("missing   " + std::to_string(missing));
-    std::string mark_line = "marks     ";
-    for (const auto &entry : marks) {
-        if (mark_line.size() > 10)
-            mark_line += "  ";
-        mark_line += std::string(1, entry.first) + ":" +
-                     std::to_string(entry.second);
+    std::string kind_line = "kinds     ";
+    for (const auto &entry : kinds) {
+        if (kind_line.size() > 10)
+            kind_line += "  ";
+        kind_line +=
+            std::string(1, entry.first) + ":" + std::to_string(entry.second);
     }
-    if (marks.empty())
-        mark_line += "-";
-    pane.lines.push_back(mark_line);
+    if (kinds.empty())
+        kind_line += "-";
+    pane.lines.push_back(kind_line);
 }
 
 static void build_cmd(Pane &pane, State &state, bool force_cmds) {
@@ -868,7 +882,7 @@ static void refresh_panes(Model &model, State &state, bool force_cmds) {
     bool group_ok = state.selected_group.empty();
     if (!group_ok) {
         for (const Dest &dest : state.dests) {
-            if (dest.group_name == state.selected_group) {
+            if (dest.group == state.selected_group) {
                 group_ok = true;
                 break;
             }
@@ -880,12 +894,12 @@ static void refresh_panes(Model &model, State &state, bool force_cmds) {
     const Dest *selected = find_dest(state.dests, state.selected_dest);
     const bool selection_ok =
         selected && (state.selected_group.empty() ||
-                     selected->group_name == state.selected_group);
+                     selected->group == state.selected_group);
     if (!selection_ok) {
         state.selected_dest.clear();
         if (!state.selected_group.empty()) {
             for (const Dest &dest : state.dests) {
-                if (dest.group_name == state.selected_group) {
+                if (dest.group == state.selected_group) {
                     state.selected_dest = dest.dest_name;
                     break;
                 }
@@ -961,7 +975,7 @@ static void refresh_panes(Model &model, State &state, bool force_cmds) {
         state.focus = 0;
     else
         state.focus = std::clamp(state.focus, 0,
-                                  static_cast<int>(model.panes.size()) - 1);
+                                 static_cast<int>(model.panes.size()) - 1);
 }
 
 // ============================================================================
@@ -969,9 +983,9 @@ static void refresh_panes(Model &model, State &state, bool force_cmds) {
 // ============================================================================
 
 struct Block {
-    std::vector<std::string> lines;
-    size_t width = 0;
-    size_t height = 0;
+        std::vector<std::string> lines;
+        size_t width = 0;
+        size_t height = 0;
 };
 
 static Block make_block(std::vector<std::string> lines) {
@@ -1072,25 +1086,25 @@ static void render_static(const Model &model) {
 // ============================================================================
 
 struct RawTerminal {
-    int fd;
-    termios saved{};
-    bool active = false;
+        int fd;
+        termios saved{};
+        bool active = false;
 
-    explicit RawTerminal(int fd_) : fd(fd_) {
-        if (tcgetattr(fd, &saved) != 0)
-            return;
-        termios raw = saved;
-        raw.c_lflag &= ~(ICANON | ECHO | ISIG);
-        raw.c_iflag &= ~(IXON | ICRNL);
-        raw.c_cc[VMIN] = 1;
-        raw.c_cc[VTIME] = 0;
-        active = tcsetattr(fd, TCSANOW, &raw) == 0;
-    }
+        explicit RawTerminal(int fd_) : fd(fd_) {
+            if (tcgetattr(fd, &saved) != 0)
+                return;
+            termios raw = saved;
+            raw.c_lflag &= ~(ICANON | ECHO | ISIG);
+            raw.c_iflag &= ~(IXON | ICRNL);
+            raw.c_cc[VMIN] = 1;
+            raw.c_cc[VTIME] = 0;
+            active = tcsetattr(fd, TCSANOW, &raw) == 0;
+        }
 
-    ~RawTerminal() {
-        if (active)
-            tcsetattr(fd, TCSANOW, &saved);
-    }
+        ~RawTerminal() {
+            if (active)
+                tcsetattr(fd, TCSANOW, &saved);
+        }
 };
 
 enum class Key {
@@ -1100,8 +1114,8 @@ enum class Key {
     NextPane,
     PrevPane,
     Go,
-    Brief,
-    Note,
+    Msg,
+    File,
     Edit,
     Rm,
     Refresh,
@@ -1112,8 +1126,7 @@ enum class Key {
 static bool write_all(int fd, const std::string &data) {
     size_t offset = 0;
     while (offset < data.size()) {
-        const ssize_t n =
-            write(fd, data.data() + offset, data.size() - offset);
+        const ssize_t n = write(fd, data.data() + offset, data.size() - offset);
         if (n <= 0)
             return false;
         offset += static_cast<size_t>(n);
@@ -1146,8 +1159,7 @@ static Key read_key(int fd) {
         struct pollfd pfd = {fd, POLLIN, 0};
         if (poll(&pfd, 1, 30) > 0) {
             unsigned char seq[2] = {0, 0};
-            if (read(fd, &seq[0], 1) == 1 &&
-                (seq[0] == '[' || seq[0] == 'O') &&
+            if (read(fd, &seq[0], 1) == 1 && (seq[0] == '[' || seq[0] == 'O') &&
                 read(fd, &seq[1], 1) == 1) {
                 switch (seq[1]) {
                 case 'A':
@@ -1177,10 +1189,10 @@ static Key read_key(int fd) {
     case '\n':
     case '\r':
         return Key::Go;
-    case 'b':
-        return Key::Brief;
-    case 'n':
-        return Key::Note;
+    case 'm':
+        return Key::Msg;
+    case 'f':
+        return Key::File;
     case 'e':
         return Key::Edit;
     case 'r':
@@ -1210,9 +1222,8 @@ static bool move_selection(Model &model, State &state, int delta) {
     }
 
     int next = pane.cursor;
-    for (int i = pane.cursor + delta; i >= 0 &&
-                                      i < static_cast<int>(pane.keyed.size());
-         i += delta) {
+    for (int i = pane.cursor + delta;
+         i >= 0 && i < static_cast<int>(pane.keyed.size()); i += delta) {
         if (pane.keyed[i]) {
             next = i;
             break;
@@ -1229,7 +1240,7 @@ static bool move_selection(Model &model, State &state, int delta) {
         state.selected_dest = key;
         for (const Dest &dest : state.dests) {
             if (dest.dest_name == key) {
-                state.selected_group = dest.group_name;
+                state.selected_group = dest.group;
                 break;
             }
         }
@@ -1258,15 +1269,15 @@ static void adjust_scroll(std::vector<Pane> &panes) {
 }
 
 static const char *HELP_TEXT =
-    "Tab focus  j/k move  Enter go  b brief  n note  e edit  r rm  R reload  "
+    "Tab focus  j/k move  Enter go  m msg  f file  e edit  r rm  R reload  "
     "q quit";
 
 // Action is returned via exit status; only the selected dest goes to stdout.
 enum PanelAction {
     PANEL_NONE = 0,
     PANEL_GO = 10,
-    PANEL_BRIEF = 11,
-    PANEL_NOTE = 12,
+    PANEL_MSG = 11,
+    PANEL_FILE = 12,
     PANEL_EDIT = 13,
     PANEL_RM = 14,
 };
@@ -1287,9 +1298,8 @@ static void draw_frame(int fd, const Model &model, const State &state,
         if (content_h > 0 &&
             pane.lines.size() > static_cast<size_t>(content_h)) {
             const size_t first = static_cast<size_t>(pane.scroll);
-            const size_t last =
-                std::min(pane.lines.size(),
-                         first + static_cast<size_t>(content_h));
+            const size_t last = std::min(
+                pane.lines.size(), first + static_cast<size_t>(content_h));
             title += " [" + std::to_string(first + 1) + "-" +
                      std::to_string(last) + "/" +
                      std::to_string(pane.lines.size()) + "]";
@@ -1386,15 +1396,14 @@ static int run_tui(Model &model, State &state) {
                 break;
             case Key::NextPane:
                 if (!model.panes.empty())
-                    state.focus =
-                        (state.focus + 1) % static_cast<int>(model.panes.size());
+                    state.focus = (state.focus + 1) %
+                                  static_cast<int>(model.panes.size());
                 break;
             case Key::PrevPane:
                 if (!model.panes.empty())
-                    state.focus =
-                        (state.focus - 1 +
-                         static_cast<int>(model.panes.size())) %
-                        static_cast<int>(model.panes.size());
+                    state.focus = (state.focus - 1 +
+                                   static_cast<int>(model.panes.size())) %
+                                  static_cast<int>(model.panes.size());
                 break;
             case Key::Refresh:
                 state.status = reload_state(state) ? "reloaded" : state.status;
@@ -1403,19 +1412,19 @@ static int run_tui(Model &model, State &state) {
                 state.status = HELP_TEXT;
                 break;
             case Key::Go:
-            case Key::Brief:
-            case Key::Note:
+            case Key::Msg:
+            case Key::File:
             case Key::Edit:
             case Key::Rm:
                 if (state.selected_dest.empty()) {
                     state.status = "no dest selected";
                     break;
                 }
-                action = key == Key::Go      ? PANEL_GO
-                         : key == Key::Brief ? PANEL_BRIEF
-                         : key == Key::Note  ? PANEL_NOTE
-                         : key == Key::Edit  ? PANEL_EDIT
-                                             : PANEL_RM;
+                action = key == Key::Go     ? PANEL_GO
+                         : key == Key::Msg  ? PANEL_MSG
+                         : key == Key::File ? PANEL_FILE
+                         : key == Key::Edit ? PANEL_EDIT
+                                            : PANEL_RM;
                 action_dest = state.selected_dest;
                 done = true;
                 break;

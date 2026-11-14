@@ -3,7 +3,7 @@
 ## Nav
 
 App with shell wrapper for managing, operating and navigating through the destinations,
-which are either a task or a navigation path (filesystem path, url, command), or all together
+which are either a task or a navigation target (directory, file, command, message), or all together
 
 - Usage: navapp [COMMAND] [ARGS]
 
@@ -12,10 +12,10 @@ Commands:
   list [<group>] [-c|-s]           lists dests (of the group)
   list-filter <cond> [-c|-s]       lists dests satisfying condition
   panel [<panel>] [--static]       interactive panel from config or provided one (--static prints once)
-  get <dest> [args] [-c|-s]        prints the path of the dest with args expanded
+  get <dest> [args] [-c|-s]        prints the resolved target of the dest with args expanded
   get-filter <cond> [-c|-s]        prints dest_name of the first dest satisfying condition
-  brief-get <dest> [args] [-c|-s]  prints the brief of the dest
-  note-get <dest> [args] [-c|-s]   prints the note of the dest
+  msg-get <dest> [args] [-c|-s]    prints the message of the dest
+  file-get <dest> [args] [-c|-s]   prints the file of the dest
   edit <dest> [-c|-s]              edits a dest line in place (readline, prefilled)
   rm <dest> [-f] [-c|-s]           removes a dest (asks for confirmation unless -f)
   query <query> [-f]               allows to query the navdict into stdout ([-f] adds the field header)
@@ -51,7 +51,7 @@ Pane leaves:
 | `pane:list:group=NAME` | dests of a literal group |
 | `pane:list:filter=EXPR` | dests matching a query filter expression |
 | `pane:detail` | fields of the selected dest |
-| `pane:stats` | totals, groups, marks, due/overdue and missing paths |
+| `pane:stats` | totals, groups, kinds, due/overdue and missing paths |
 | `pane:attention[:DAYS]` | overdue/soon dates and missing paths (default 7 days) |
 | `pane:dates` | dated dests in ascending date order |
 | `pane:cmd:SHELL` | shell command output (bare leaves are legacy shell commands too) |
@@ -61,80 +61,93 @@ parentheses. Panes share `$group`/`$dest` selection context; `pane:cmd` is the
 escape hatch for external commands.
 
 Keys: `Tab`/`Shift-Tab` (or left/right arrows) focus, `j`/`k` (or up/down)
-move, `Enter` go, `b` brief, `n` note, `e` edit, `r` rm, `R` reload, `q` quit.
+move, `Enter` go, `m` msg, `f` file, `e` edit, `r` rm, `R` reload, `q` quit.
 `navapp panel` prints only the selected dest and returns the action as an exit
-status: `0` quit/no selection, `10` go, `11` brief, `12` note, `13` edit,
+status: `0` quit/no selection, `10` go, `11` msg, `12` file, `13` edit,
 `14` rm, `1` error. The `nav` wrapper dispatches those codes to the existing
 commands.
 
 Example:
 
 ```ini
-panel=@SH(V(pane:groups,pane:dates,pane:stats),V(pane:list,pane:detail))
+panel=@VH(V(pane:groups,pane:dates,pane:stats),V(pane:list,pane:detail))
 ```
 
 ### Nav file format
 
 - Destination format:
-`<destinatinon name> = [@P<destination path>][@B<task brief>][@N<task note path>][@D<date YYYY-MM-DD>][@C<command to run>][@L<priority level>][@F formatting num][@M dest mark]`.
-Entry required to have either dest path, brief, note path or a command to run,
-otherwise entry is ignored.
-`@D` accepts `YYYY-MM-DD` (or `YYYY/M/D`) and is normalized; an invalid date is
+`<destination name> = [@D<directory>][@M<message>][@F<file>][@T<date YYYY-MM-DD>][@C<command to run>][@L<level>][@S<style num>][@K<kind>]`.
+Entry required to have either dir, msg, file or a command to run, otherwise
+entry is ignored.
+`@T` accepts `YYYY-MM-DD` (or `YYYY/M/D`) and is normalized; an invalid date is
 a parse error. `@` introduces a field specifier, so a literal `@` inside a field
 is written `@@`
-  - Dest mark is a symbolic icon placed instead of the bullet in listings and
-tab-completion if a mark is presented. There are some hardcoded mappings (they
-can also be overriden)
+
+| Tag | Field |
+| --- | --- |
+| `@D` | dir |
+| `@M` | msg |
+| `@F` | file |
+| `@C` | cmd |
+| `@L` | level |
+| `@S` | style |
+| `@K` | kind |
+| `@T` | date |
+| `@V` | settings value |
+
+  - Dest kind is a symbolic icon placed instead of the bullet in listings and
+tab-completion if a kind is presented; an empty kind is rendered as `-`. There
+are some hardcoded mappings (they can also be overridden)
     - closed=`X`
     - started=` `
     - finished=`-`
     - ongoing=`>`
     - dest - displays prioritized return type of `get <dest>` logic:
-      - `C` - command
-      - `P` - path
-      - `N` - note
-      - `B` - brief
+      - `C` - cmd
+      - `D` - dir
+      - `M` - msg
+      - `F` - file
 
-- Destination group format:
-`[<group name>, <formatting>]`. Formatting is an 8-bit color: foreground in the
-low 4 bits, background in the high 4 bits (ANSI-16 color numbers, `0` = terminal
-default). A dest's own `@F` overrides its group's formatting; omitting the group
-formatting leaves the group unformatted. Colors are rendered as ANSI-16 escapes
-by `list`, `list-filter` and `dates` (only when stdout is a terminal).
+- Destination group style:
+`[<group name>, <style>]`. Style is an 8-bit color: foreground in the low 4
+bits, background in the high 4 bits (ANSI-16 color numbers, `0` = terminal
+default). A dest's own `@S` overrides its group's style; omitting the group
+style leaves the group unstyled. Colors are rendered as ANSI-16 escapes by
+`list`, `list-filter` and `dates` (only when stdout is a terminal).
 
 #### Settings group format
 
 Should be the first group in the file, designated as `[@SETTINGS]` ini-format group
-each value denoted with @S setting specifier
+each value denoted with @V setting specifier
 
-- Destination fields priority:
+- Destination field priority:
 Specifies the `go <dest>` fields priority from higher to lower (default order
 is shown below)
 
 ```ini
-priority=@Scommand,path,note,brief
+priority=@Vcmd,dir,file,msg
 ```
 
 - UI click response:
-Specifies the default go-mode behaviour on dest click (go / brief-go / note-go)
+Specifies the default go-mode behaviour on dest click (go / msg-go / file-go)
 (default option is shown below)
 
 ```ini
-on_click=@Sgo
+on_click=@Vgo
 ```
 
 - Startup command:
 Specifies the command to run on machine startup (unset on default)
 
 ```ini
-on_startup=@Snav list todo
+on_startup=@Vnav list todo
 ```
 
-- Dest marks mappings:
-Specifies mark -> symbol mappings (default ones are shown below)
+- Dest kind mappings:
+Specifies kind -> symbol mappings (default ones are shown below)
 
 ```ini
-marks_map=@Sclosed=X,started=' ',finished=-,ongoing=>
+kinds_map=@Vclosed=X,started=' ',finished=-,ongoing=>
 ```
 
 ### Writing to the navdict
@@ -155,19 +168,19 @@ ordering are preserved.
 
 ### Shell usage
 Can be used as shell shorthands for the destinations by command substitution (e.g
-$EDITOR $(navapp note-get <dest>) for opening dest's note)
+$EDITOR $(navapp file-get <dest>) for opening dest's file)
 Shell wrapper is provided by `./utils/shsharedfuncs.sh` as nav() func
 
 - Destinations completion - completion of destinations with symbolic destination
-mark icon and the dest's terminal color by `./utils/_nav`. `navapp dests-list`
+kind icon and the dest's terminal color by `./utils/_nav`. `navapp dests-list`
 emits `color-params <TAB> display <TAB> value`; `_nav` shows the display and
 inserts the value, applying the color through zsh's `list-colors` so columns stay
 aligned
 
 ### Argument expansion
 
-`@C`, `@P`, `@N` or `@B` fields can have positional args which are expanded if
-returned by `get`, `brief-get` or `note-get` call (max args amount is 10,
+`@C`, `@D`, `@F` or `@M` fields can have positional args which are expanded if
+returned by `get`, `msg-get` or `file-get` call (max args amount is 10,
 not used vars placeholders are erased during expansion):
 
 - `@0`, `@1`, ... , `@9` - the corresponding argument, zero-based
@@ -177,7 +190,7 @@ a `@` not followed by a digit or `@` is kept as-is
 
 Example: for the dest `fw = @Cfirefox --new-window @0`, `navapp get fw google.com`
 returns `firefox --new-window google.com` with return code, corresponding to
-command field, which can be executed by shell wrapper
+cmd field, which can be executed by shell wrapper
 
 ### Query syntax
 SQL-like syntax for querying the navdict, `<cond>` args should contain only
@@ -186,21 +199,21 @@ expression, `<query>` can use entire syntax
 - Supported operators: `=`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `!`
   (`< > <= >=` compare strings lexicographically when both operands are strings)
 - Supported funcs:
-  - `IS_DIR(path)` - `yes` when the string argument is an existing directory
-  - IS_GIT(path) - `yes` when the string argument is a git repository
+  - `IS_DIR(dir)` - `yes` when the string argument is an existing directory
+  - `IS_GIT(dir)` - `yes` when the string argument is a git repository
   - `TODAY()` - today's date as `YYYY-MM-DD`
   - `DAYS_UNTIL(date)` - whole days from today until `date` (negative if past)
 - Supported keywords: `SELECT`, `WHERE`, `ORDER`, `BY`, `ASC`, `DESC`, `LIMIT`
 - Columns:
   - `dest` - dest name
-  - `path` - dest path
-  - `brief` - dest brief
-  - `note` - dest note filepath
-  - `command` - dest command
+  - `dir` - dest directory
+  - `msg` - dest message
+  - `file` - dest file
+  - `cmd` - dest command
   - `group` - group name of the dest
-  - `level` - dest priority level
-  - `format` - dest formatting
-  - `mark` - dest mark
+  - `level` - dest level
+  - `style` - dest style
+  - `kind` - dest kind
   - `date` - dest date as `YYYY-MM-DD` (empty when unset)
 
 Output is comma-separated rows without a header. Pass `-f` (or `--fields`)
@@ -227,17 +240,17 @@ are not cached)
 
 #### Examples
 
-- `nav list-filter "group = 'todo' && priority > 0 && mark = 'suspended'"` - to
-list prioritized todo destinations with suspended mark
+- `nav list-filter "group = 'todo' && level > 0 && kind = 'suspended'"` - to
+list prioritized todo destinations with suspended kind
 
-- `nav query "SELECT dest, level WHERE group = 'todo' && level > 0 && mark = 
-'suspended'"` - to query prioritized todo destinations with suspended mark
+- `nav query "SELECT dest, level WHERE group = 'todo' && level > 0 && kind =
+'suspended'"` - to query prioritized todo destinations with suspended kind
 
-- `nav query "SELECT dest WHERE IS_DIR(path)"` - to query destinations whose
-path is an existing directory
+- `nav query "SELECT dest WHERE IS_DIR(dir)"` - to query destinations whose
+directory exists
 
-- `nav query "SELECT dest WHERE !IS_DIR(path)"` - to query destinations whose
-path is not an existing directory
+- `nav query "SELECT dest WHERE !IS_DIR(dir)"` - to query destinations whose
+directory does not exist
 
 - `nav query "SELECT dest, date WHERE date != '' ORDER BY date LIMIT 5"` - to
 get the 5 nearest dates
@@ -250,11 +263,11 @@ destinations due within a week
 ### Usage examples
 
 - Creating of a dest as a shortcut for per git dest command execution of specified
-group, so e.g `nav go exec-repo todo "cd \$dpath && git diff --quiet HEAD"`
+group, so e.g `nav go exec-repo todo "cd \$ddir && git diff --quiet HEAD"`
 will mark each todo git directory dest as `+` (no staged or unstaged changes) or `-`
 (has staged or unstaged changes):
 ```txt
-exec-repo=@Cnav query "SELECT path WHERE IS_GIT(path) && group = '@0'" | while IFS= read -r dpath; do (@1) && echo "\"$dpath\": +" || echo "\"$dpath\": -"; done
+exec-repo=@Cnav query "SELECT dir WHERE IS_GIT(dir) && group = '@0'" | while IFS= read -r ddir; do (@1) && echo "\"$ddir\": +" || echo "\"$ddir\": -"; done
 ```
 
 ## XTemplate
