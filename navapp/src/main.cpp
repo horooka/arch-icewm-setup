@@ -5,7 +5,7 @@
 #include <nav.h>
 #include <string>
 #include <unistd.h>
-#include "panel.h"
+#include "present.h"
 
 struct Ctx {
         int argc = 0;
@@ -94,7 +94,7 @@ static std::string colorize(const std::string &text, unsigned char style,
 }
 
 static unsigned char group_style(const Settings &settings,
-                                  const std::string &group_name) {
+                                 const std::string &group_name) {
     for (const auto &entry : settings.group_style_map) {
         if (entry.first == group_name)
             return entry.second;
@@ -183,22 +183,23 @@ static int run_list(Ctx &ctx, bool is_filter) {
 
 static int cmd_list(Ctx &ctx) { return run_list(ctx, false); }
 static int cmd_list_filter(Ctx &ctx) { return run_list(ctx, true); }
-static int cmd_panel(Ctx &ctx) {
+static int cmd_present(Ctx &ctx) {
     bool interactive = true;
-    std::string panel_arg;
+    std::string present_arg;
     if (ctx.argc >= 3) {
         if (std::strcmp(ctx.argv[2], "--static") == 0) {
             interactive = false;
         } else {
             if (ctx.argc >= 4 && std::strcmp(ctx.argv[3], "--static") == 0)
                 interactive = false;
-            panel_arg = ctx.argv[2];
+            present_arg = ctx.argv[2];
         }
     }
     if (load(ctx, nullptr, MCOMPOSE(M_NONE, 0, 0), "Parse errors:\n"))
         return 1;
-    return eval_panel(panel_arg.empty() ? ctx.settings.panel : panel_arg,
-                      ctx.navdict, ctx.dests, ctx.settings, interactive);
+    return eval_present(present_arg.empty() ? ctx.settings.present
+                                            : present_arg,
+                        ctx.navdict, ctx.dests, ctx.settings, interactive);
 }
 
 // ============================================================================
@@ -486,7 +487,7 @@ static int cmd_rm(Ctx &ctx) {
 static const Command commands[] = {
     {"list", cmd_list},
     {"list-filter", cmd_list_filter},
-    {"panel", cmd_panel},
+    {"present", cmd_present},
     {"get", cmd_get},
     {"get-filter", cmd_get_filter},
     {"msg-get", cmd_msg_get},
@@ -509,7 +510,7 @@ static int print_usage() {
            "group)\n"
            "  list-filter <cond> [-c|-s]       lists dests satisfying "
            "condition\n"
-           "  panel [<panel>] [--static]       interactive panel from config "
+           "  present [<layout>] [--static]    interactive panes from config "
            "or provided one (--static prints once)\n"
            "  get <dest> [args] [-c|-s]        prints the resolved target of "
            "the dest with args expanded\n"

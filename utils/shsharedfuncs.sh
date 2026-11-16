@@ -2,6 +2,12 @@ MESSAGE() {
   zenity --info --text="$1"
 }
 
+XTERM() {
+  STARTUP_COMMAND="$1" \
+    xterm -fullscreen -hold -e zsh -ic \
+    'source "$HOME/.config/shsharedfuncs.sh"; eval "$STARTUP_COMMAND"; exec zsh -i'
+}
+
 #=================================================
 #              WORKFLOW continuation
 #=================================================
@@ -86,24 +92,24 @@ nav() {
   if [[ -z $1 ]]; then
     echo "Usage: nav [COMMAND] [ARGS]\n"
     echo "Commands:"
-    echo "  list [<group>] [-c|-s]      lists dests"
-    echo "  list-filter <cond> [-c|-s]  lists dests satisfying condition"
-    echo "  panel [<panel>] [--static]  interactive panel from config or provided one (--static prints once)"
-    echo "  go <dest> [-c|-s]           cd/display/open/execute depends on dest's dir / msg / file / cmd fields priority"
-    echo "  msg <dest> [-c|-s]          performs msg opening on dest"
-    echo "  file <dest> [-c|-s]         performs file opening on dest"
-    echo "  msg-go <dest> [-c|-s]       displays msg and performs go"
-    echo "  file-go <dest> [-c|-s]      displays file and performs go"
-    echo "  go-filter <cond> [-c|-s]    performs go on first dest satisfying condition"
-    echo "  edit <dest> [-c|-s]         edits a dest line in place (readline, prefilled)"
-    echo "  rm <dest> [-f] [-c|-s]      removes a dest (asks for confirmation; -f skips)"
-    echo "  add <group> [line]          appends a dest line to the group"
-    echo "  edit-group <group>          edits a group body in \$EDITOR"
-    echo "  edit-dict                   opens navdict.ini"
-    echo "  query <query> [-f]          allows to query the navdict into stdout ([-f] adds the field header)"
-    echo "  dates [opts]                lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
-    echo "  dests-list                  emits dests for shell completion (color params, display, value)"
-    echo "  <dest>                      gives the resolved target of a dest"
+    echo "  list [<group>] [-c|-s]          lists dests"
+    echo "  list-filter <cond> [-c|-s]      lists dests satisfying condition"
+    echo "  present [<layout>] [--static]   interactive panes from config or provided one (--static prints once)"
+    echo "  go <dest> [-c|-s]               cd/display/open/execute depends on dest's dir / msg / file / cmd fields priority"
+    echo "  msg <dest> [-c|-s]              performs msg opening on dest"
+    echo "  file <dest> [-c|-s]             performs file opening on dest"
+    echo "  msg-go <dest> [-c|-s]           displays msg and performs go"
+    echo "  file-go <dest> [-c|-s]          displays file and performs go"
+    echo "  go-filter <cond> [-c|-s]        performs go on first dest satisfying condition"
+    echo "  edit <dest> [-c|-s]             edits a dest line in place (readline, prefilled)"
+    echo "  rm <dest> [-f] [-c|-s]          removes a dest (asks for confirmation; -f skips)"
+    echo "  add <group> [line]              appends a dest line to the group"
+    echo "  edit-group <group>              edits a group body in \$EDITOR"
+    echo "  edit-dict                       opens navdict.ini"
+    echo "  query <query> [-f]              allows to query the navdict into stdout ([-f] adds the field header)"
+    echo "  dates [opts]                    lists dests with dates sorted by date (--upcoming [N], --past, --reverse, --all, --limit N)"
+    echo "  dests-list                      emits dests for shell completion (color params, display, value)"
+    echo "  <dest>                          gives the resolved target of a dest"
     echo ""
     echo "Flags:"
     echo "  -c  reuse the previously compiled filter"
@@ -112,31 +118,31 @@ nav() {
   fi
 
   case $1 in
-  panel)
-    local panel_arg="${2:-}"
-    local panel_static=0
-    if [[ "$panel_arg" == "--static" ]]; then
-      panel_static=1
-      panel_arg=""
-    elif [[ -n "$panel_arg" && "${3:-}" == "--static" ]]; then
-      panel_static=1
+  present)
+    local present_arg="${2:-}"
+    local present_static=0
+    if [[ "$present_arg" == "--static" ]]; then
+      present_static=1
+      present_arg=""
+    elif [[ -n "$present_arg" && "${3:-}" == "--static" ]]; then
+      present_static=1
     fi
-    if (( panel_static )) || [[ ! -t 0 ]]; then
-      if [[ -n "$panel_arg" ]]; then
-        navapp panel "$panel_arg" --static
+    if ((present_static)) || [[ ! -t 0 ]]; then
+      if [[ -n "$present_arg" ]]; then
+        navapp present "$present_arg" --static
       else
-        navapp panel --static
+        navapp present --static
       fi
       return $?
     fi
-    if [[ -n "$panel_arg" ]]; then
-      selection="$(navapp panel "$panel_arg")"
+    if [[ -n "$present_arg" ]]; then
+      selection="$(navapp present "$present_arg")"
     else
-      selection="$(navapp panel)"
+      selection="$(navapp present)"
     fi
     rc=$?
-    if (( rc >= 10 && rc <= 14 )) && [[ -z "$selection" ]]; then
-      echo "Panel returned no destination"
+    if ((rc >= 10 && rc <= 14)) && [[ -z "$selection" ]]; then
+      echo "Present returned no destination"
       return 1
     fi
     case $rc in
@@ -173,10 +179,10 @@ nav() {
     return $?
     ;;
   startup)
-    output="$(navapp get-startup 2>&1)"
+    startup_command="$(navapp get-startup 2>&1)"
     rc=$?
     if [[ $rc -eq 0 ]]; then
-      MESSAGE "$(eval "$output")"
+      XTERM "$startup_command"
       return 0
     else
       echo "ERROR: "on_startup" setting is not provided"

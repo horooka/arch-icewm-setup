@@ -11,7 +11,7 @@ which are either a task or a navigation target (directory, file, command, messag
 Commands:
   list [<group>] [-c|-s]           lists dests (of the group)
   list-filter <cond> [-c|-s]       lists dests satisfying condition
-  panel [<panel>] [--static]       interactive panel from config or provided one (--static prints once)
+  present [<layout>] [--static]    interactive panes from config or provided one (--static prints once)
   get <dest> [args] [-c|-s]        prints the resolved target of the dest with args expanded
   get-filter <cond> [-c|-s]        prints dest_name of the first dest satisfying condition
   msg-get <dest> [args] [-c|-s]    prints the message of the dest
@@ -29,12 +29,11 @@ Flags:
   -s  compile the filter but do not cache it
 ```
 
-### Panel
+### Present
 
-`nav panel [<panel>]` opens the interactive panel configured by the `panel`
+`nav present [<layout>]` opens the interactive panes configured by the `present`
 setting, or from a layout passed as the first argument. `--static` prints the
-composed panel once as plain text. The `panel` setting is required when no
-layout argument is given; an empty setting is an error.
+composed panes once as plain text
 
 ```text
 H(...)   horizontal split
@@ -54,15 +53,28 @@ Pane leaves:
 | `pane:stats` | totals, groups, kinds, due/overdue and missing paths |
 | `pane:attention[:DAYS]` | overdue/soon dates and missing paths (default 7 days) |
 | `pane:dates` | dated dests in ascending date order |
-| `pane:cmd:SHELL` | shell command output (bare leaves are legacy shell commands too) |
+| `pane:battery[:MODE][:UNITS]` | ascii-art battery; `MODE` is `horiz` (default) or `vert`; `UNITS` is width normally, cell count in vertical mode |
+|                             | defaults are 15 horizontal / 7 vertical |
+| `pane:weather` | cached wttr.in weather (multiline cache, 30 min TTL) |
+| `pane:cmd:SHELL` | shell command output |
 
-Leaves can contain commas and parentheses inside quotes or balanced
-parentheses. Panes share `$group`/`$dest` selection context; `pane:cmd` is the
-escape hatch for external commands.
+Battery examples: `pane:battery:horiz:10` (horizontal width 10),
+`pane:battery:vert` (vertical cell count 7), `pane:battery:vert:10` (vertical
+cell count 10).
+
+Weather is cached at `${XDG_CACHE_HOME:-~/.cache}/nav/wttr`. The pane reads
+all cache lines, refreshes the cache through `wttr.in` when it is older than 30
+minutes, and falls back to the cached lines if fetching fails. Fetching requires
+`curl` and network access; without either, a stale or unavailable cache is shown.
+
+Every leaf must start with `pane:`. Bare shell-command leaves are not
+supported; use `pane:cmd:SHELL` instead. Leaves can contain commas and
+parentheses inside quotes or balanced parentheses. Panes share
+`$group`/`$dest` selection context.
 
 Keys: `Tab`/`Shift-Tab` (or left/right arrows) focus, `j`/`k` (or up/down)
 move, `Enter` go, `m` msg, `f` file, `e` edit, `r` rm, `R` reload, `q` quit.
-`navapp panel` prints only the selected dest and returns the action as an exit
+`navapp present` prints only the selected dest and returns the action as an exit
 status: `0` quit/no selection, `10` go, `11` msg, `12` file, `13` edit,
 `14` rm, `1` error. The `nav` wrapper dispatches those codes to the existing
 commands.
@@ -70,7 +82,7 @@ commands.
 Example:
 
 ```ini
-panel=@VH(V(pane:groups,pane:dates,pane:stats),V(pane:list,pane:detail))
+present=@VH(V(pane:groups,pane:list,pane:detail), V(pane:weather,pane:dates,pane:attention,pane:stats))
 ```
 
 ### Nav file format
@@ -137,10 +149,13 @@ on_click=@Vgo
 ```
 
 - Startup command:
-Specifies the command to run on machine startup (unset on default)
+Specifies the command to run on machine startup. It runs in a fullscreen
+interactive zsh with the nav wrapper loaded, and leaves an interactive shell
+afterward. Use `nav present` here so present actions are dispatched by the
+wrapper.
 
 ```ini
-on_startup=@Vnav list todo
+on_startup=@Vnav present <optional startup layout>
 ```
 
 - Dest kind mappings:

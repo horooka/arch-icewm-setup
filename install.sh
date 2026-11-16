@@ -1,6 +1,6 @@
 set -eu
 
-sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake ttf-meslo-nerd python fastfetch
+sudo pacman -Suy bat brightnessctl firefox fzf git icewm nvim zsh cmake ttf-meslo-nerd python
 
 # ============
 # === Home ===

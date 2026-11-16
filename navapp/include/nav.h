@@ -20,14 +20,15 @@ struct Settings {
         std::array<std::string, 4> fields_priority = {"cmd", "dir", "file",
                                                       "msg"};
         std::string on_startup = "";
-        std::string panel = ""; // required layout for `navapp panel`
+        std::string present = "";
         std::vector<std::pair<std::string, char>> kind_to_symbol_map = {
             {"opened", ' '},
             {"closed", 'X'},
             {"finished", '-'},
             {"ongoing", '>'}};
         // Group -> packed 8-bit style (fg in low nibble, bg in high nibble),
-        // collected from `[Group, style]` headers. Missing entry means no style.
+        // collected from `[Group, style]` headers. Missing entry means no
+        // style.
         std::vector<std::pair<std::string, unsigned char>> group_style_map;
 };
 

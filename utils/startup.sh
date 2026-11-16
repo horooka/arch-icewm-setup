@@ -17,8 +17,8 @@ export XAUTHORITY=/run/user/1000/lyxauth
 for attempt in {1..30}; do
     if [[ -r "$XAUTHORITY" ]] &&
        /usr/bin/xset q >/dev/null 2>&1; then
-        nav startup
-	exit 0
+      nav startup
+      exit 0
     fi
     sleep 1
 done

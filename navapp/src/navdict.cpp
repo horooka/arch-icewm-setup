@@ -165,11 +165,12 @@ std::vector<DestTag> get_specifiers(const std::string &line) {
     return specifiers;
 }
 
-std::pair<unsigned char, unsigned char> parse_dest_line(
-    const std::string &line, std::string &dest_name, std::string &dest_dir,
-    std::string &dest_msg, std::string &dest_file, std::string &dest_date,
-    std::string &dest_kind, std::string &dest_cmd, std::string &dest_value,
-    std::string &errors) {
+std::pair<unsigned char, unsigned char>
+parse_dest_line(const std::string &line, std::string &dest_name,
+                std::string &dest_dir, std::string &dest_msg,
+                std::string &dest_file, std::string &dest_date,
+                std::string &dest_kind, std::string &dest_cmd,
+                std::string &dest_value, std::string &errors) {
     std::pair<unsigned char, unsigned char> ret = {0, 0};
     dest_name.clear();
     dest_dir.clear();
@@ -618,8 +619,8 @@ int edit_dest(const std::string &file_path, Dest &dest) {
         }
         std::string value;
         const auto style_priority = parse_dest_line(
-            *edited, dest.dest_name, dest.dir, dest.msg, dest.file,
-            dest.date, dest.kind, dest.cmd, value, line_errors);
+            *edited, dest.dest_name, dest.dir, dest.msg, dest.file, dest.date,
+            dest.kind, dest.cmd, value, line_errors);
         dest.style = style_priority.first;
         dest.level = style_priority.second;
         return 0;
@@ -965,8 +966,8 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
             decode_const_pool(&const_strs, (uint8_t *)ctx->const_pool, offset);
         }
     }
-    std::string dest_name, dest_dir, dest_msg, dest_file, dest_date,
-        dest_kind, dest_cmd, dest_value;
+    std::string dest_name, dest_dir, dest_msg, dest_file, dest_date, dest_kind,
+        dest_cmd, dest_value;
     std::optional<std::streampos> prev_line;
     bool settings_found = false;
     // Util groups
@@ -1010,8 +1011,8 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
                 settings.on_startup = dest_value;
                 if (MBASE(mode) == M_STARTUP)
                     return 0;
-            } else if (dest_name == "panel") {
-                settings.panel = dest_value;
+            } else if (dest_name == "present") {
+                settings.present = dest_value;
             } else if (dest_name == "kinds_map") {
                 std::vector<std::string> mappings = split_by_comma(dest_value);
                 for (const std::string &map_pair : mappings) {
@@ -1111,9 +1112,8 @@ int parse_navdict(const std::string &file_path, std::vector<Dest> &dests,
         if (dest_name.empty())
             continue;
         // Dest's own @S wins; otherwise fall back to the group's style.
-        const unsigned char style = style_priority.first != 0
-                                        ? style_priority.first
-                                        : curr_style;
+        const unsigned char style =
+            style_priority.first != 0 ? style_priority.first : curr_style;
         Dest destination = {dest_name,       style,
                             dest_dir,        dest_msg,
                             dest_file,       dest_date,

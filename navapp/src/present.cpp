@@ -1,20 +1,22 @@
-#include "panel.h"
+#include "present.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cctype>
-#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <poll.h>
-#include <sstream>
 #include <string>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
@@ -374,7 +376,10 @@ static std::vector<std::string> split_lines(const std::string &s) {
     return out;
 }
 
-static std::vector<std::string> run_shell_lines(const std::string &cmd) {
+static std::vector<std::string> run_shell_lines(const std::string &cmd,
+                                                 bool *ok = nullptr) {
+    if (ok)
+        *ok = false;
     if (cmd.empty())
         return {"(no command)"};
 
@@ -398,7 +403,11 @@ static std::vector<std::string> run_shell_lines(const std::string &cmd) {
     }
     if (lines.empty())
         lines.push_back("(no output)");
-    if (status != -1 && WIFEXITED(status) && WEXITSTATUS(status) != 0)
+    const bool success =
+        status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    if (ok)
+        *ok = success;
+    if (!success && status != -1 && WIFEXITED(status))
         lines.push_back("! exit " + std::to_string(WEXITSTATUS(status)));
     return lines;
 }
@@ -424,13 +433,14 @@ enum class PaneKind {
     Attention,
     Dates,
     Cmd,
+    Battery,
+    Weather,
     Unknown
 };
 
 struct PaneSpec {
         PaneKind kind = PaneKind::Unknown;
         std::string arg;
-        bool legacy_cmd = false;
 };
 
 struct Rect {
@@ -472,42 +482,57 @@ struct State {
 static PaneSpec parse_pane_spec(const std::string &leaf) {
     const std::string text = trim_copy(leaf);
     if (text.rfind("pane:", 0) != 0)
-        return PaneSpec{PaneKind::Cmd, text, true};
-
+        return PaneSpec{PaneKind::Unknown, text};
     const std::string rest = text.substr(5);
     if (rest == "groups")
-        return PaneSpec{PaneKind::Groups, "", false};
+        return PaneSpec{PaneKind::Groups, ""};
     if (rest == "list")
-        return PaneSpec{PaneKind::List, "", false};
+        return PaneSpec{PaneKind::List, ""};
     if (rest.rfind("list:", 0) == 0)
-        return PaneSpec{PaneKind::List, trim_copy(rest.substr(5)), false};
+        return PaneSpec{PaneKind::List, trim_copy(rest.substr(5))};
     if (rest == "detail")
-        return PaneSpec{PaneKind::Detail, "", false};
+        return PaneSpec{PaneKind::Detail, ""};
     if (rest == "stats")
-        return PaneSpec{PaneKind::Stats, "", false};
+        return PaneSpec{PaneKind::Stats, ""};
     if (rest == "dates")
-        return PaneSpec{PaneKind::Dates, "", false};
+        return PaneSpec{PaneKind::Dates, ""};
     if (rest == "attention")
-        return PaneSpec{PaneKind::Attention, "7", false};
+        return PaneSpec{PaneKind::Attention, "7"};
+    if (rest == "weather")
+        return PaneSpec(PaneKind::Weather, "");
+    if (rest == "battery")
+        return PaneSpec{PaneKind::Battery, ""};
+    if (rest.rfind("battery:", 0) == 0)
+        return PaneSpec{PaneKind::Battery, trim_copy(rest.substr(8))};
     if (rest.rfind("attention:", 0) == 0)
-        return PaneSpec{PaneKind::Attention, trim_copy(rest.substr(10)), false};
+        return PaneSpec{PaneKind::Attention, trim_copy(rest.substr(10))};
     if (rest.rfind("cmd:", 0) == 0)
-        return PaneSpec{PaneKind::Cmd, trim_copy(rest.substr(4)), false};
-    return PaneSpec{PaneKind::Unknown, text, false};
+        return PaneSpec{PaneKind::Cmd, trim_copy(rest.substr(4))};
+    return PaneSpec{PaneKind::Unknown, text};
 }
 
-static void collect_panes(LayoutNode *node, std::vector<Pane> &panes) {
-    if (!node)
+static void collect_panes(LayoutNode *node, std::vector<Pane> &panes,
+                          std::string &error) {
+    if (!node || !error.empty())
         return;
     if (node->kind == LayoutNode::Leaf) {
+        if (node->leaf.rfind("pane:", 0) != 0) {
+            error = "bare pane leaf is not supported: " + node->leaf;
+            return;
+        }
+        PaneSpec spec = parse_pane_spec(node->leaf);
+        if (spec.kind == PaneKind::Unknown) {
+            error = "unknown pane: " + node->leaf;
+            return;
+        }
         node->pane_index = static_cast<int>(panes.size());
         Pane pane;
-        pane.spec = parse_pane_spec(node->leaf);
+        pane.spec = std::move(spec);
         panes.push_back(std::move(pane));
         return;
     }
     for (auto &child : node->children)
-        collect_panes(child.get(), panes);
+        collect_panes(child.get(), panes, error);
 }
 
 static void compute_rects(LayoutNode *node, const Rect &rect,
@@ -860,7 +885,7 @@ static void build_stats(Pane &pane, const State &state) {
 }
 
 static void build_cmd(Pane &pane, State &state, bool force_cmds) {
-    pane.title = pane.spec.legacy_cmd ? "" : "Cmd";
+    pane.title = "Cmd";
     const std::string &cmd = pane.spec.arg;
     auto it = state.cmd_cache.find(cmd);
     if (force_cmds || it == state.cmd_cache.end()) {
@@ -872,9 +897,190 @@ static void build_cmd(Pane &pane, State &state, bool force_cmds) {
         pane.lines.push_back("");
 }
 
-static void build_unknown(Pane &pane) {
-    pane.title = "Unknown";
-    pane.lines.push_back("unknown pane: " + pane.spec.arg);
+static int read_battery_capacity() {
+    const char *paths[] = {"/sys/class/power_supply/BAT0/capacity",
+                           "/sys/class/power_supply/BAT1/capacity",
+                           "/sys/class/power_supply/BAT2/capacity"};
+    for (const char *path : paths) {
+        std::ifstream file(path);
+        int capacity = -1;
+        if (file >> capacity)
+            return capacity;
+    }
+    return -1;
+}
+
+static void build_battery(Pane &pane) {
+    int capacity = read_battery_capacity();
+    uint8_t mode = 0;
+    if (capacity >= 0) {
+        capacity = std::clamp(capacity, 0, 100);
+        pane.title = std::string("Battery (") + std::to_string(capacity) + "%)";
+        // Syntax: battery[:MODE][:UNITS]
+        // MODE is horiz (default) or vert; UNITS is the cell count.
+        int battery_units = 15;
+        if (!pane.spec.arg.empty()) {
+            const size_t colon_pos = pane.spec.arg.find(':');
+            const std::string mode_str =
+                colon_pos == std::string::npos
+                    ? pane.spec.arg
+                    : pane.spec.arg.substr(0, colon_pos);
+            const std::string units_str =
+                colon_pos == std::string::npos
+                    ? std::string()
+                    : pane.spec.arg.substr(colon_pos + 1);
+            if (mode_str == "vert") {
+                mode = 1;
+                battery_units = 7;
+            } else if (!mode_str.empty() && mode_str != "horiz") {
+                pane.lines.push_back("Bad mode: " + mode_str);
+            }
+            if (!units_str.empty()) {
+                int parsed = 0;
+                const auto result = std::from_chars(
+                    units_str.data(), units_str.data() + units_str.size(),
+                    parsed);
+                if (result.ec == std::errc{} &&
+                    result.ptr == units_str.data() + units_str.size() &&
+                    parsed > 0)
+                    battery_units = parsed;
+            }
+        }
+        battery_units = std::clamp(battery_units, 1, 100);
+        const int capacity_units =
+            std::clamp(capacity * battery_units / 100, 0, battery_units);
+        if (mode == 1) {
+            pane.lines.push_back("  _  ");
+            pane.lines.push_back("+---+");
+            int i = 0;
+            for (; i < battery_units - capacity_units; ++i) {
+                pane.lines.push_back("|   |");
+            }
+            for (; i < battery_units; ++i) {
+                pane.lines.push_back("|###|");
+            }
+            pane.lines.push_back("+---+");
+        } else {
+            std::string middle =
+                std::string("|") + std::string(capacity_units, '/') +
+                std::string(battery_units - capacity_units, ' ') + '|';
+            std::string edge =
+                std::string("+") + std::string(battery_units, '-') + '+';
+            pane.lines.push_back(edge);
+            pane.lines.push_back(middle + ']');
+            pane.lines.push_back(edge);
+        }
+        return;
+    }
+    pane.title = "Battery (?)";
+    if (mode == 0) {
+        pane.lines.push_back("+---------------+");
+        pane.lines.push_back("|   Not found   |]");
+        pane.lines.push_back("+---------------+");
+    } else if (mode == 1) {
+        pane.lines.push_back("  _ ");
+        pane.lines.push_back("+---+");
+        pane.lines.push_back("| N |");
+        pane.lines.push_back("| o |");
+        pane.lines.push_back("| t |");
+        pane.lines.push_back("| f |");
+        pane.lines.push_back("| o |");
+        pane.lines.push_back("| u |");
+        pane.lines.push_back("| n |");
+        pane.lines.push_back("| d |");
+        pane.lines.push_back("+---+");
+    } else {
+        pane.lines.push_back("+---------------+");
+        pane.lines.push_back("|   Not found   |]");
+        pane.lines.push_back("+---------------+");
+    }
+}
+
+static std::filesystem::path get_cache_dir() {
+    const char *xdg_cache = std::getenv("XDG_CACHE_HOME");
+    if (xdg_cache && *xdg_cache) {
+        return std::filesystem::path(xdg_cache);
+    }
+    const char *home = std::getenv("HOME");
+    if (home && *home) {
+        return std::filesystem::path(home) / ".cache";
+    }
+    return std::filesystem::temp_directory_path();
+}
+
+static constexpr std::time_t WEATHER_CACHE_TTL = 30 * 60;
+
+static std::vector<std::string>
+read_weather_cache(const std::filesystem::path &path) {
+    std::vector<std::string> lines;
+    std::ifstream cache_in(path);
+    std::string line;
+    while (std::getline(cache_in, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    while (!lines.empty() && lines.front().empty())
+        lines.erase(lines.begin());
+    while (!lines.empty() && lines.back().empty())
+        lines.pop_back();
+    return lines;
+}
+
+static void write_weather_cache(const std::filesystem::path &path,
+                                const std::vector<std::string> &lines) {
+    std::ofstream cache_out(path, std::ios::trunc);
+    if (!cache_out)
+        return;
+    for (const std::string &line : lines)
+        cache_out << line << '\n';
+}
+
+static void build_weather(Pane &pane) {
+    const std::filesystem::path cached_path =
+        get_cache_dir() / "nav" / "wttr";
+    std::error_code ec;
+    std::filesystem::create_directories(cached_path.parent_path(), ec);
+
+    pane.title = "Weather (wttr.in)";
+
+    struct stat st;
+    const bool have_cache = stat(cached_path.c_str(), &st) == 0;
+    std::vector<std::string> cached_lines = read_weather_cache(cached_path);
+    if (have_cache && !cached_lines.empty()) {
+        const std::time_t now = std::time(nullptr);
+        if (now - st.st_mtime <= WEATHER_CACHE_TTL) {
+            pane.title = "Weather (cached, wttr.in)";
+            pane.lines = std::move(cached_lines);
+            return;
+        }
+    }
+
+    const std::string command =
+        "curl -sf --max-time 5 "
+        "'wttr.in?format=%l:+%t+%C%0A%w%20%h' 2>/dev/null";
+    bool fetched_ok = false;
+    std::vector<std::string> fetched =
+        run_shell_lines(command, &fetched_ok);
+    const bool no_output =
+        fetched.size() == 1 && fetched.front() == "(no output)";
+    if (fetched_ok && !no_output) {
+        while (!fetched.empty() && fetched.back().empty())
+            fetched.pop_back();
+        if (!fetched.empty()) {
+            write_weather_cache(cached_path, fetched);
+            pane.lines = std::move(fetched);
+            return;
+        }
+    }
+
+    if (!cached_lines.empty()) {
+        pane.title = "Weather (cached, wttr.in)";
+        pane.lines = std::move(cached_lines);
+        return;
+    }
+    pane.title = "Weather (?)";
+    pane.lines.push_back("Weather unavailable");
 }
 
 static void refresh_panes(Model &model, State &state, bool force_cmds) {
@@ -937,8 +1143,13 @@ static void refresh_panes(Model &model, State &state, bool force_cmds) {
         case PaneKind::Cmd:
             build_cmd(pane, state, force_cmds);
             break;
+        case PaneKind::Battery:
+            build_battery(pane);
+            break;
+        case PaneKind::Weather:
+            build_weather(pane);
+            break;
         case PaneKind::Unknown:
-            build_unknown(pane);
             break;
         }
     }
@@ -1273,13 +1484,13 @@ static const char *HELP_TEXT =
     "q quit";
 
 // Action is returned via exit status; only the selected dest goes to stdout.
-enum PanelAction {
-    PANEL_NONE = 0,
-    PANEL_GO = 10,
-    PANEL_MSG = 11,
-    PANEL_FILE = 12,
-    PANEL_EDIT = 13,
-    PANEL_RM = 14,
+enum PresentAction {
+    PRESENT_NONE = 0,
+    PRESENT_GO = 10,
+    PRESENT_MSG = 11,
+    PRESENT_FILE = 12,
+    PRESENT_EDIT = 13,
+    PRESENT_RM = 14,
 };
 
 static void draw_frame(int fd, const Model &model, const State &state,
@@ -1365,48 +1576,59 @@ static int run_tui(Model &model, State &state) {
         return 0;
     }
 
-    int action = PANEL_NONE;
+    int action = PRESENT_NONE;
     std::string action_dest;
     {
         RawTerminal raw(fd);
         write_all(fd, "\x1b[?1049h\x1b[?25l");
 
         bool done = false;
+        bool need_refresh = true;
         while (!done) {
             int width = 80;
             int height = 24;
             get_size(fd, width, height);
             const Rect body{0, 0, std::max(1, width), std::max(1, height - 1)};
             compute_rects(model.root.get(), body, model.panes);
-            refresh_panes(model, state, false);
-            adjust_scroll(model.panes);
+            if (need_refresh) {
+                refresh_panes(model, state, false);
+                adjust_scroll(model.panes);
+            }
             draw_frame(fd, model, state, width, height);
             state.status.clear();
 
             const Key key = read_key(fd);
+            need_refresh = false;
             switch (key) {
             case Key::Quit:
                 done = true;
                 break;
             case Key::Up:
-                move_selection(model, state, -1);
+                if (move_selection(model, state, -1))
+                    need_refresh = true;
                 break;
             case Key::Down:
-                move_selection(model, state, 1);
+                if (move_selection(model, state, 1))
+                    need_refresh = true;
                 break;
             case Key::NextPane:
-                if (!model.panes.empty())
+                if (!model.panes.empty()) {
                     state.focus = (state.focus + 1) %
                                   static_cast<int>(model.panes.size());
+                    adjust_scroll(model.panes);
+                }
                 break;
             case Key::PrevPane:
-                if (!model.panes.empty())
+                if (!model.panes.empty()) {
                     state.focus = (state.focus - 1 +
                                    static_cast<int>(model.panes.size())) %
                                   static_cast<int>(model.panes.size());
+                    adjust_scroll(model.panes);
+                }
                 break;
             case Key::Refresh:
                 state.status = reload_state(state) ? "reloaded" : state.status;
+                need_refresh = true;
                 break;
             case Key::Help:
                 state.status = HELP_TEXT;
@@ -1420,11 +1642,11 @@ static int run_tui(Model &model, State &state) {
                     state.status = "no dest selected";
                     break;
                 }
-                action = key == Key::Go     ? PANEL_GO
-                         : key == Key::Msg  ? PANEL_MSG
-                         : key == Key::File ? PANEL_FILE
-                         : key == Key::Edit ? PANEL_EDIT
-                                            : PANEL_RM;
+                action = key == Key::Go     ? PRESENT_GO
+                         : key == Key::Msg  ? PRESENT_MSG
+                         : key == Key::File ? PRESENT_FILE
+                         : key == Key::Edit ? PRESENT_EDIT
+                                            : PRESENT_RM;
                 action_dest = state.selected_dest;
                 done = true;
                 break;
@@ -1437,7 +1659,7 @@ static int run_tui(Model &model, State &state) {
     } // Restore termios before closing the tty fd.
     close(fd);
 
-    if (action != PANEL_NONE && !action_dest.empty()) {
+    if (action != PRESENT_NONE && !action_dest.empty()) {
         std::cout << action_dest << '\n';
         std::cout.flush();
     }
@@ -1446,12 +1668,12 @@ static int run_tui(Model &model, State &state) {
 
 } // namespace
 
-int eval_panel(const std::string &layout, const std::string &navdict_path,
-               const std::vector<Dest> &dests, const Settings &settings,
-               bool interactive) {
+int eval_present(const std::string &layout, const std::string &navdict_path,
+                 const std::vector<Dest> &dests, const Settings &settings,
+                 bool interactive) {
     const std::string effective = trim_copy(layout);
     if (effective.empty()) {
-        std::cerr << "Panel layout is not configured; set `panel=` in "
+        std::cerr << "Present layout is not configured; set `present=` in "
                      "[@SETTINGS]\n";
         return 1;
     }
@@ -1460,13 +1682,18 @@ int eval_panel(const std::string &layout, const std::string &navdict_path,
     Model model;
     model.root = parse_layout(effective, error);
     if (!model.root) {
-        std::cerr << "Panel layout error: "
+        std::cerr << "Present layout error: "
                   << (error.empty() ? "invalid layout" : error) << '\n';
         return 1;
     }
-    collect_panes(model.root.get(), model.panes);
+    std::string pane_error;
+    collect_panes(model.root.get(), model.panes, pane_error);
+    if (!pane_error.empty()) {
+        std::cerr << "Present layout error: " << pane_error << '\n';
+        return 1;
+    }
     if (model.panes.empty()) {
-        std::cerr << "Panel layout error: no panes\n";
+        std::cerr << "Present layout error: no panes\n";
         return 1;
     }
 
